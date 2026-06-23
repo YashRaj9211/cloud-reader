@@ -1,0 +1,6 @@
+{
+  "name": "Cloud PDF Reader",
+  "description": "A beautiful PDF book reader with Google Drive sync, custom highlights, text annotations, dark mode, and full-screen reading.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
