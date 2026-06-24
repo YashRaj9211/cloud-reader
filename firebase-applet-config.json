@@ -1,9 +1,9 @@
 {
-  "projectId": "gen-lang-client-0699041026",
-  "appId": "1:1055705874337:web:2ee6cf339648d68dcb15e0",
-  "apiKey": "AIzaSyBLKwIRoKJ8TpSnCXKsRVBIY3J49Vnh4Pg",
-  "authDomain": "gen-lang-client-0699041026.firebaseapp.com",
-  "storageBucket": "gen-lang-client-0699041026.firebasestorage.app",
-  "messagingSenderId": "1055705874337",
-  "measurementId": ""
+  "projectId": "cloud-pdf-reader",
+  "appId": "1:893183039150:web:29585ec143c66e011fbf3f",
+  "apiKey": "AIzaSyBL3GmxJE67_0yoHvHy2s-YJBupZW9wsjA",
+  "authDomain": "cloud-pdf-reader.firebaseapp.com",
+  "storageBucket": "cloud-pdf-reader.firebasestorage.app",
+  "messagingSenderId": "893183039150",
+  "measurementId": "G-54FCJDMYSC"
 }

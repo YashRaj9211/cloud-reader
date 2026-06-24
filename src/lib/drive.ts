@@ -112,38 +112,49 @@ export async function downloadPdfBytes(token: string, fileId: string): Promise<A
  * Uploads a regular local PDF file to the user's Google Drive.
  */
 export async function uploadFileToDrive(token: string, file: File): Promise<string> {
-  const boundary = 'cloud_pdf_reader_boundary';
+  // 1. Initiate a resumable upload session
   const metadata = {
     name: file.name,
     mimeType: file.type || 'application/pdf',
   };
 
-  const metadataPart = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n`;
-  const mediaPartHeader = `--${boundary}\r\nContent-Type: ${file.type || 'application/pdf'}\r\n\r\n`;
-  const mediaPartFooter = `\r\n--${boundary}--`;
-
-  const blob = new Blob([
-    metadataPart,
-    mediaPartHeader,
-    file,
-    mediaPartFooter
-  ], { type: `multipart/related; boundary=${boundary}` });
-
-  const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+  const initRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json; charset=UTF-8',
+      'X-Upload-Content-Type': file.type || 'application/pdf',
+      'X-Upload-Content-Length': file.size.toString(),
     },
-    body: blob,
+    body: JSON.stringify(metadata),
   });
 
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Failed to upload to Google Drive: ${errText}`);
+  if (!initRes.ok) {
+    const errText = await initRes.text();
+    throw new Error(`Failed to initiate upload session: ${errText}`);
   }
 
-  const data = await res.json();
-  return data.id; // Returns Google Drive ID
+  const uploadUrl = initRes.headers.get('Location');
+  if (!uploadUrl) {
+    throw new Error('Upload session location URL is missing from response headers.');
+  }
+
+  // 2. Perform the upload to the session URI
+  const putRes = await fetch(uploadUrl, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': file.type || 'application/pdf',
+    },
+    body: file,
+  });
+
+  if (!putRes.ok) {
+    const errText = await putRes.text();
+    throw new Error(`Failed to upload file content: ${errText}`);
+  }
+
+  const data = await putRes.json();
+  return data.id; // Returns Google Drive file ID
 }
 
 /**

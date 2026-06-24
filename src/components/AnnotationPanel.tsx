@@ -1,48 +1,65 @@
 import { useState } from 'react';
-import { 
-  Highlighter, 
-  MessageSquare, 
-  Search, 
-  Trash2, 
+import {
+  Highlighter,
+  MessageSquare,
+  Search,
+  Trash2,
   ExternalLink,
-  Tag
+  Tag,
+  Pen,
+  Square,
+  Type,
 } from 'lucide-react';
-import { Highlight, StickyNote } from '../types';
+import { Highlight, StickyNote, InkStroke, ShapeAnnotation, TextBox } from '../types';
 
 interface AnnotationPanelProps {
   highlights: Highlight[];
   notes: StickyNote[];
+  inkStrokes: InkStroke[];
+  shapes: ShapeAnnotation[];
+  textBoxes: TextBox[];
   onPageSelect: (pageNumber: number) => void;
   onDeleteHighlight: (id: string) => void;
   onDeleteNote: (id: string) => void;
+  onDeleteInkStroke: (id: string) => void;
+  onDeleteShape: (id: string) => void;
+  onDeleteTextBox: (id: string) => void;
   darkMode: boolean;
 }
 
-type AnnotationFilter = 'all' | 'highlights' | 'notes';
+type AnnotationFilter = 'all' | 'highlights' | 'notes' | 'ink' | 'shapes' | 'text';
+
+type MergedEntry = {
+  id: string;
+  type: 'highlight' | 'note' | 'ink' | 'shape' | 'text';
+  page: number;
+  color: string;
+  text: string;
+  createdAt: string;
+};
 
 export default function AnnotationPanel({
   highlights,
   notes,
+  inkStrokes,
+  shapes,
+  textBoxes,
   onPageSelect,
   onDeleteHighlight,
   onDeleteNote,
+  onDeleteInkStroke,
+  onDeleteShape,
+  onDeleteTextBox,
   darkMode,
 }: AnnotationPanelProps) {
   const [filter, setFilter] = useState<AnnotationFilter>('all');
   const [search, setSearch] = useState('');
 
-  // Normalize entries into a shared display layout structured by Page density
-  const mergedAnnotations: Array<{
-    id: string;
-    type: 'highlight' | 'note';
-    page: number;
-    color: string;
-    text: string;
-    createdAt: string;
-  }> = [];
+  const mergedAnnotations: MergedEntry[] = [];
 
+  // Legacy rect highlights + freehand highlight ink strokes
   if (filter === 'all' || filter === 'highlights') {
-    highlights.forEach((h) => {
+    highlights.forEach((h) =>
       mergedAnnotations.push({
         id: h.id,
         type: 'highlight',
@@ -50,12 +67,23 @@ export default function AnnotationPanel({
         color: h.color,
         text: h.text || `Highlight on page ${h.page}`,
         createdAt: h.createdAt,
-      });
-    });
+      })
+    );
+    // Freehand highlighter strokes stored as InkStroke with isHighlight=true
+    inkStrokes.filter((s) => s.isHighlight).forEach((s) =>
+      mergedAnnotations.push({
+        id: s.id,
+        type: 'highlight',
+        page: s.page,
+        color: s.color,
+        text: `Freehand highlight`,
+        createdAt: s.createdAt,
+      })
+    );
   }
 
   if (filter === 'all' || filter === 'notes') {
-    notes.forEach((n) => {
+    notes.forEach((n) =>
       mergedAnnotations.push({
         id: n.id,
         type: 'note',
@@ -63,153 +91,213 @@ export default function AnnotationPanel({
         color: n.color,
         text: n.text,
         createdAt: n.createdAt,
-      });
-    });
+      })
+    );
   }
 
-  // Sort annotations securely by Page first, then timestamp
-  const sortedAnnotations = mergedAnnotations
+  // Only non-highlight ink strokes go in the 'ink' filter
+  if (filter === 'all' || filter === 'ink') {
+    inkStrokes.filter((s) => !s.isHighlight).forEach((s) =>
+      mergedAnnotations.push({
+        id: s.id,
+        type: 'ink',
+        page: s.page,
+        color: s.color,
+        text: `Pen stroke (${s.points.length} pts)`,
+        createdAt: s.createdAt,
+      })
+    );
+  }
+
+  if (filter === 'all' || filter === 'shapes') {
+    shapes.forEach((s) =>
+      mergedAnnotations.push({
+        id: s.id,
+        type: 'shape',
+        page: s.page,
+        color: s.color,
+        text: `${s.kind.charAt(0).toUpperCase() + s.kind.slice(1)} shape`,
+        createdAt: s.createdAt,
+      })
+    );
+  }
+
+  if (filter === 'all' || filter === 'text') {
+    textBoxes.forEach((t) =>
+      mergedAnnotations.push({
+        id: t.id,
+        type: 'text',
+        page: t.page,
+        color: t.color,
+        text: t.text,
+        createdAt: t.createdAt,
+      })
+    );
+  }
+
+  const sorted = mergedAnnotations
     .filter((a) => a.text.toLowerCase().includes(search.toLowerCase()))
-    .sort((a, b) => {
-      if (a.page !== b.page) return a.page - b.page;
-      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-    });
+    .sort((a, b) => (a.page !== b.page ? a.page - b.page : new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()));
+
+  const handleDelete = (item: MergedEntry) => {
+    if (!window.confirm('Delete this annotation?')) return;
+    // Both legacy rect highlights AND freehand highlight ink strokes land here.
+    // Try the ink store first (freehand); if not found, try the rect highlight store.
+    if (item.type === 'highlight') {
+      const isInkHL = inkStrokes.some((s) => s.id === item.id);
+      if (isInkHL) onDeleteInkStroke(item.id);
+      else onDeleteHighlight(item.id);
+    } else if (item.type === 'note') onDeleteNote(item.id);
+    else if (item.type === 'ink') onDeleteInkStroke(item.id);
+    else if (item.type === 'shape') onDeleteShape(item.id);
+    else if (item.type === 'text') onDeleteTextBox(item.id);
+  };
+
+  const typeIcon = (type: MergedEntry['type']) => {
+    switch (type) {
+      case 'highlight': return <Highlighter size={12} className="text-amber-500" />;
+      case 'note': return <MessageSquare size={12} className="text-blue-500" />;
+      case 'ink': return <Pen size={12} className="text-violet-500" />;
+      case 'shape': return <Square size={12} className="text-emerald-500" />;
+      case 'text': return <Type size={12} className="text-pink-500" />;
+    }
+  };
+
+  const typeLabel = (type: MergedEntry['type']) => {
+    switch (type) {
+      case 'highlight': return 'HIGHLIGHT';
+      case 'note': return 'STICKY NOTE';
+      case 'ink': return 'INK';
+      case 'shape': return 'SHAPE';
+      case 'text': return 'TEXT BOX';
+    }
+  };
+
+  const filters: { id: AnnotationFilter; label: string }[] = [
+    { id: 'all', label: 'All' },
+    { id: 'highlights', label: 'HL' },
+    { id: 'notes', label: 'Notes' },
+    { id: 'ink', label: 'Ink' },
+    { id: 'shapes', label: 'Shapes' },
+    { id: 'text', label: 'Text' },
+  ];
 
   return (
-    <div className={`w-80 h-full flex flex-col border-l transition-colors duration-300 ${
-      darkMode 
-        ? 'bg-zinc-950 border-zinc-800 text-zinc-100' 
-        : 'bg-white border-zinc-200 text-zinc-950'
-    }`}>
-      {/* Panel title */}
-      <div className={`p-6 border-b flex items-center justify-between ${
-        darkMode ? 'border-zinc-800' : 'border-zinc-100'
-      }`}>
-        <div className="flex items-center space-x-2">
-          <Tag className="text-amber-500" size={18} />
-          <h2 className="text-sm font-semibold tracking-tight font-sans">Annotations</h2>
+    <div
+      className={`w-72 h-full flex flex-col border-l transition-colors duration-300 ${
+        darkMode ? 'bg-zinc-950 border-zinc-800 text-zinc-100' : 'bg-white border-zinc-200 text-zinc-950'
+      }`}
+    >
+      {/* Header */}
+      <div className={`p-4 border-b flex items-center justify-between ${darkMode ? 'border-zinc-800' : 'border-zinc-100'}`}>
+        <div className="flex items-center gap-2">
+          <Tag className="text-amber-500" size={16} />
+          <h2 className="text-sm font-semibold tracking-tight">Annotations</h2>
         </div>
-        <span className="text-xs px-2.5 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-500 font-mono">
-          {sortedAnnotations.length}
+        <span className="text-xs px-2 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-500 font-mono">
+          {sorted.length}
         </span>
       </div>
 
-      {/* Filter Options */}
-      <div className="p-4 space-y-3">
-        {/* Toggle Button controls */}
-        <div className="grid grid-cols-3 gap-1 p-1 rounded-lg bg-zinc-100 dark:bg-zinc-900 border border-transparent">
-          {(['all', 'highlights', 'notes'] as AnnotationFilter[]).map((tab) => (
+      {/* Filters */}
+      <div className="p-3 space-y-2.5">
+        <div className="flex flex-wrap gap-1">
+          {filters.map(({ id, label }) => (
             <button
-              key={tab}
-              onClick={() => setFilter(tab)}
-              className={`py-1.5 text-[10px] font-medium rounded-md capitalize transition-colors ${
-                filter === tab
-                  ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-50 shadow-xs font-semibold'
-                  : 'text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200'
+              key={id}
+              onClick={() => setFilter(id)}
+              className={`px-2 py-1 text-[10px] font-semibold rounded-md capitalize transition-colors ${
+                filter === id
+                  ? 'bg-amber-500 text-white'
+                  : darkMode
+                  ? 'bg-zinc-800 text-zinc-400 hover:text-zinc-200'
+                  : 'bg-zinc-100 text-zinc-500 hover:text-zinc-800'
               }`}
             >
-              {tab}
+              {label}
             </button>
           ))}
         </div>
 
-        {/* Local Annotation queries search */}
         <div className="relative">
-          <Search className="absolute left-3 top-2.5 text-zinc-400" size={13} />
+          <Search className="absolute left-2.5 top-2.5 text-zinc-400" size={12} />
           <input
             type="text"
-            placeholder="Search notes..."
+            placeholder="Search annotations…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className={`w-full pl-9 pr-4 py-1.5 text-[11px] rounded-lg border focus:outline-none focus:ring-1 focus:ring-amber-500 transition-colors ${
-              darkMode 
-                ? 'bg-zinc-900 border-zinc-800 text-zinc-100 placeholder-zinc-500' 
+            className={`w-full pl-8 pr-3 py-1.5 text-[11px] rounded-lg border focus:outline-none focus:ring-1 focus:ring-amber-500 ${
+              darkMode
+                ? 'bg-zinc-900 border-zinc-700 text-zinc-100 placeholder-zinc-500'
                 : 'bg-white border-zinc-200 text-zinc-800 placeholder-zinc-400'
             }`}
           />
         </div>
       </div>
 
-      {/* Display Annotation list cards */}
-      <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-2.5 custom-scrollbar">
-        {sortedAnnotations.length === 0 ? (
+      {/* List */}
+      <div className="flex-1 overflow-y-auto px-3 pb-3 space-y-2 custom-scrollbar">
+        {sorted.length === 0 ? (
           <div className="py-12 text-center flex flex-col items-center justify-center">
-            <MessageSquare size={26} className="text-zinc-300 dark:text-zinc-700 mb-2" />
-            <p className="text-xs text-zinc-400 font-sans">No annotations found</p>
-            <p className="text-[10px] text-zinc-500 max-w-[180px] mt-1">
-              {filter === 'all' 
-                ? 'Highlight sections or enter notes on pages to start synchronizing.' 
-                : `No matching ${filter} found.`}
+            <MessageSquare size={24} className="text-zinc-300 dark:text-zinc-700 mb-2" />
+            <p className="text-xs text-zinc-400">No annotations yet</p>
+            <p className="text-[10px] text-zinc-500 max-w-[160px] mt-1">
+              Use the toolbar tools to highlight, draw, or add notes.
             </p>
           </div>
         ) : (
-          sortedAnnotations.map((item) => (
+          sorted.map((item) => (
             <div
               key={item.id}
               onClick={() => onPageSelect(item.page)}
               className={`p-3 rounded-xl border relative text-left group cursor-pointer transition-all ${
-                darkMode 
-                  ? 'bg-zinc-900/60 hover:bg-zinc-900 border-zinc-800 hover:border-zinc-700' 
+                darkMode
+                  ? 'bg-zinc-900/60 hover:bg-zinc-900 border-zinc-800 hover:border-zinc-700'
                   : 'bg-zinc-50/50 hover:bg-zinc-50 border-zinc-100 hover:border-zinc-200'
               }`}
             >
-              <div className="flex items-center justify-between gap-1 mb-1.5">
-                <div className="flex items-center space-x-1.5">
-                  {item.type === 'highlight' ? (
-                    <Highlighter size={12} className="text-amber-500" />
-                  ) : (
-                    <MessageSquare size={12} className="text-blue-500" />
-                  )}
-                  <span className="text-[10px] font-semibold text-zinc-400">
-                    {item.type === 'highlight' ? 'HIGHLIGHT' : 'STICKY NOTE'}
+              {/* Color stripe */}
+              <div
+                className="absolute left-0 top-3 bottom-3 w-0.5 rounded-full"
+                style={{ backgroundColor: item.color }}
+              />
+              <div className="pl-2">
+                <div className="flex items-center justify-between gap-1 mb-1">
+                  <div className="flex items-center gap-1.5">
+                    {typeIcon(item.type)}
+                    <span className="text-[9px] font-bold text-zinc-400 tracking-wide">
+                      {typeLabel(item.type)}
+                    </span>
+                  </div>
+                  <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-600">
+                    P{item.page}
                   </span>
                 </div>
-                
-                <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-600">
-                  Page {item.page}
-                </span>
-              </div>
 
-              {/* Text context snippet */}
-              <p className="text-xs font-sans break-words text-zinc-700 dark:text-zinc-300 leading-relaxed pr-6 line-clamp-3">
-                {item.text}
-              </p>
+                <p className="text-[11px] break-words text-zinc-700 dark:text-zinc-300 leading-relaxed line-clamp-2">
+                  {item.text}
+                </p>
 
-              {/* Footer row metadata */}
-              <div className="flex items-center justify-between mt-3 pt-2 border-t border-zinc-100 dark:border-zinc-800/80">
-                <span className="text-[9px] font-mono text-zinc-400/80">
-                  {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </span>
-                
-                <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onPageSelect(item.page);
-                    }}
-                    className="p-1 rounded-sm text-zinc-400 hover:text-zinc-950 dark:hover:text-white"
-                    title="Jump to Page"
-                  >
-                    <ExternalLink size={11} />
-                  </button>
-
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      const confirmed = window.confirm('Delete this annotation? This cannot be undone.');
-                      if (confirmed) {
-                        if (item.type === 'highlight') {
-                          onDeleteHighlight(item.id);
-                        } else {
-                          onDeleteNote(item.id);
-                        }
-                      }
-                    }}
-                    className="p-1 rounded-sm text-zinc-400 hover:text-red-500"
-                    title="Delete Annotation"
-                  >
-                    <Trash2 size={11} />
-                  </button>
+                <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-zinc-100 dark:border-zinc-800/80">
+                  <span className="text-[9px] font-mono text-zinc-400/70">
+                    {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                  <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onPageSelect(item.page); }}
+                      className="p-1 rounded text-zinc-400 hover:text-zinc-900 dark:hover:text-white"
+                      title="Jump to page"
+                    >
+                      <ExternalLink size={10} />
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleDelete(item); }}
+                      className="p-1 rounded text-zinc-400 hover:text-red-500"
+                      title="Delete"
+                    >
+                      <Trash2 size={10} />
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
