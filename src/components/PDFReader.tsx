@@ -59,6 +59,7 @@ interface PDFReaderProps {
   onDeleteShape: (id: string) => void;
   onAddTextBox: (t: Omit<TextBox, 'id' | 'createdAt'>) => void;
   onDeleteTextBox: (id: string) => void;
+  onDocumentLoad?: (numPages: number) => void;
   darkMode: boolean;
 }
 
@@ -87,6 +88,7 @@ export default function PDFReader({
   onDeleteShape,
   onAddTextBox,
   onDeleteTextBox,
+  onDocumentLoad,
   darkMode,
 }: PDFReaderProps) {
   // ── Refs ──────────────────────────────────────────────────────────────────
@@ -117,7 +119,7 @@ export default function PDFReader({
   const [thumbnailOpen, setThumbnailOpen] = useState<boolean>(true);
 
   // ── Annotation colours & sizes ────────────────────────────────────────────
-  const [annotColor, setAnnotColor] = useState<string>('#f59e0b');
+  const [annotColor, setAnnotColor] = useState<string>('#fa5d19');
   const [inkWidth, setInkWidth] = useState<number>(3);
   const [hlWidth, setHlWidth] = useState<number>(18); // highlighter brush width
 
@@ -165,6 +167,9 @@ export default function PDFReader({
         setPdf(doc);
         setTotalPages(doc.numPages);
         setLoading(false);
+        if (onDocumentLoad) {
+          onDocumentLoad(doc.numPages);
+        }
         if (currentPage > doc.numPages) onChangePage(1);
       },
       (err) => {
@@ -707,8 +712,8 @@ export default function PDFReader({
   // ─── Palette & toolbar helpers ────────────────────────────────────────────
 
   const paletteColors = [
-    '#f59e0b', '#10b981', '#ef4444',
-    '#3b82f6', '#8b5cf6', '#ec4899', '#000000',
+    '#fa5d19', '#ff7a3d', '#10b981', '#ef4444',
+    '#3b82f6', '#9061ff', '#ec4899', '#000000',
   ];
 
   const toolBtn = (
@@ -726,10 +731,8 @@ export default function PDFReader({
         title={label}
         className={`p-2 rounded-lg flex items-center gap-1.5 text-xs font-medium transition-all ${
           active
-            ? 'bg-amber-500 text-white shadow-sm'
-            : darkMode
-            ? 'text-zinc-400 hover:bg-zinc-800'
-            : 'text-zinc-600 hover:bg-zinc-100'
+            ? 'bg-[#fa5d19] text-white shadow-sm'
+            : 'text-zinc-600 dark:text-zinc-400 hover:bg-[var(--color-surface-container-high)]'
         }`}
       >
         {icon}
@@ -745,52 +748,40 @@ export default function PDFReader({
       title={label}
       className={`p-2 rounded-lg flex items-center gap-1 text-xs transition-all ${
         toolMode === 'shape' && activeShape === kind
-          ? 'bg-amber-500 text-white shadow-sm'
-          : darkMode
-          ? 'text-zinc-400 hover:bg-zinc-800'
-          : 'text-zinc-600 hover:bg-zinc-100'
+          ? 'bg-[#fa5d19] text-white shadow-sm'
+          : 'text-zinc-600 dark:text-zinc-400 hover:bg-[var(--color-surface-container-high)]'
       }`}
     >
       {icon}
     </button>
   );
 
-  const divider = <div className={`h-5 w-px mx-0.5 ${darkMode ? 'bg-zinc-800' : 'bg-zinc-200'}`} />;
+  const divider = <div className="h-5 w-px mx-0.5 bg-[var(--color-outline-variant)]" />;
 
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <div
       id="pdf-reader-root"
-      className={`flex flex-col h-full rounded-2xl border transition-colors duration-300 overflow-hidden ${
-        darkMode ? 'bg-zinc-950 border-zinc-800 text-zinc-100' : 'bg-white border-zinc-200 text-zinc-900'
-      }`}
+      className="flex flex-col h-full rounded-2xl border border-[var(--color-outline-variant)] bg-[var(--color-surface)] text-[var(--color-on-surface)] transition-colors duration-300 overflow-hidden shadow-sm"
     >
       {/* ── Toolbar ─────────────────────────────────────────────────────── */}
-      <div
-        className={`flex flex-wrap items-center gap-2 px-4 py-2.5 border-b shrink-0 ${
-          darkMode ? 'border-zinc-800 bg-zinc-900/60' : 'border-zinc-100 bg-zinc-50'
-        }`}
-      >
+      <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-[var(--color-outline-variant)] bg-[var(--color-surface)] shrink-0">
         {/* Page navigation */}
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1">
           <button
             id="reader-prev-btn"
             onClick={() => currentPage > 1 && onChangePage(currentPage - 1)}
             disabled={currentPage <= 1 || loading}
-            className={`p-1.5 rounded-lg transition-colors disabled:opacity-30 ${
-              darkMode ? 'hover:bg-zinc-800 text-zinc-400' : 'hover:bg-zinc-100 text-zinc-600'
-            }`}
+            className="p-1.5 rounded-lg transition-colors text-zinc-500 hover:bg-[var(--color-surface-container-high)] disabled:opacity-30"
           >
             <ChevronLeft size={18} />
           </button>
-          <div className={`flex items-center gap-1 text-xs font-mono px-2 py-1 rounded-lg border ${
-            darkMode ? 'bg-zinc-900 border-zinc-700' : 'bg-white border-zinc-200'
-          }`}>
+          <div className="flex items-center gap-1 text-xs font-mono px-2 py-1 rounded-lg border border-[var(--color-outline-variant)] bg-[var(--color-surface-container-lowest)]">
             <input
               id="reader-page-jump"
               type="number" min={1} max={totalPages} value={currentPage}
               onChange={(e) => { const v = parseInt(e.target.value); if (v >= 1 && v <= totalPages) onChangePage(v); }}
-              className="w-10 text-center bg-transparent outline-none"
+              className="w-10 text-center bg-transparent outline-none font-semibold text-[var(--color-on-surface)]"
             />
             <span className="text-zinc-400">/ {totalPages}</span>
           </div>
@@ -798,9 +789,7 @@ export default function PDFReader({
             id="reader-next-btn"
             onClick={() => currentPage < totalPages && onChangePage(currentPage + 1)}
             disabled={currentPage >= totalPages || loading}
-            className={`p-1.5 rounded-lg transition-colors disabled:opacity-30 ${
-              darkMode ? 'hover:bg-zinc-800 text-zinc-400' : 'hover:bg-zinc-100 text-zinc-600'
-            }`}
+            className="p-1.5 rounded-lg transition-colors text-zinc-500 hover:bg-[var(--color-surface-container-high)] disabled:opacity-30"
           >
             <ChevronRight size={18} />
           </button>
@@ -822,8 +811,8 @@ export default function PDFReader({
                   title={`${w}px highlighter`}
                   className={`rounded-full border-2 transition-all ${
                     hlWidth === w
-                      ? 'border-amber-500 scale-110'
-                      : darkMode ? 'border-zinc-600 hover:border-zinc-400' : 'border-zinc-300 hover:border-zinc-500'
+                      ? 'border-[#fa5d19] scale-110'
+                      : 'border-[var(--color-outline-variant)] hover:border-zinc-400'
                   }`}
                   style={{ width: Math.max(10, w * 0.6), height: Math.max(10, w * 0.6), backgroundColor: annotColor + '88' }}
                 />
@@ -842,9 +831,7 @@ export default function PDFReader({
             <select
               value={inkWidth}
               onChange={(e) => setInkWidth(Number(e.target.value))}
-              className={`text-xs rounded-md px-1 py-1 border outline-none ${
-                darkMode ? 'bg-zinc-900 border-zinc-700 text-zinc-300' : 'bg-white border-zinc-200 text-zinc-700'
-              }`}
+              className="text-xs rounded-md px-1.5 py-1 border border-[var(--color-outline-variant)] bg-[var(--color-surface)] text-[var(--color-on-surface)] outline-none"
             >
               {[1, 2, 3, 5, 8].map((w) => <option key={w} value={w}>{w}px</option>)}
             </select>
@@ -873,9 +860,9 @@ export default function PDFReader({
               onClick={() => setAnnotColor(c)}
               title={c}
               className={`rounded-full border-2 transition-transform hover:scale-110 ${
-                annotColor === c ? 'scale-125 border-white shadow-md ring-2 ring-zinc-400' : 'border-transparent'
+                annotColor === c ? 'scale-125 border-white shadow-md ring-2 ring-[#fa5d19]' : 'border-transparent'
               }`}
-              style={{ backgroundColor: c, width: 17, height: 17 }}
+              style={{ backgroundColor: c, width: 16, height: 16 }}
             />
           ))}
         </div>
@@ -885,18 +872,18 @@ export default function PDFReader({
         {/* ── Zoom ── */}
         <div className="flex items-center gap-0.5">
           <button onClick={() => setZoom((p) => Math.max(0.4, p - 0.1))}
-            className={`p-1.5 rounded-lg transition-colors ${darkMode ? 'hover:bg-zinc-800 text-zinc-400' : 'hover:bg-zinc-100 text-zinc-600'}`}
+            className="p-1.5 rounded-lg transition-colors text-zinc-500 hover:bg-[var(--color-surface-container-high)]"
             title="Zoom Out"><ZoomOut size={16} /></button>
           <span className="text-xs font-mono w-9 text-center text-zinc-500">{Math.round(zoom * 100)}%</span>
           <button onClick={() => setZoom((p) => Math.min(3.0, p + 0.1))}
-            className={`p-1.5 rounded-lg transition-colors ${darkMode ? 'hover:bg-zinc-800 text-zinc-400' : 'hover:bg-zinc-100 text-zinc-600'}`}
+            className="p-1.5 rounded-lg transition-colors text-zinc-500 hover:bg-[var(--color-surface-container-high)]"
             title="Zoom In"><ZoomIn size={16} /></button>
           <button onClick={fitToWidth} title="Fit to Width"
-            className={`px-2 py-1 rounded-lg text-[10px] font-medium transition-colors ${darkMode ? 'hover:bg-zinc-800 text-zinc-400' : 'hover:bg-zinc-100 text-zinc-600'}`}>
+            className="px-2 py-1 rounded-lg text-[10px] font-medium transition-colors text-zinc-500 hover:bg-[var(--color-surface-container-high)]">
             Width
           </button>
           <button onClick={fitToPage} title="Fit to Page"
-            className={`px-2 py-1 rounded-lg text-[10px] font-medium transition-colors ${darkMode ? 'hover:bg-zinc-800 text-zinc-400' : 'hover:bg-zinc-100 text-zinc-600'}`}>
+            className="px-2 py-1 rounded-lg text-[10px] font-medium transition-colors text-zinc-500 hover:bg-[var(--color-surface-container-high)]">
             Page
           </button>
         </div>
@@ -910,14 +897,14 @@ export default function PDFReader({
             title="Toggle thumbnails"
             className={`p-1.5 rounded-lg transition-colors ${
               thumbnailOpen
-                ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400'
-                : darkMode ? 'hover:bg-zinc-800 text-zinc-400' : 'hover:bg-zinc-100 text-zinc-600'
+                ? 'bg-[#fa5d19]/10 text-[#fa5d19]'
+                : 'text-zinc-500 hover:bg-[var(--color-surface-container-high)]'
             }`}
           >
             <AlignJustify size={16} />
           </button>
           <button onClick={toggleFullscreen} title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
-            className={`p-1.5 rounded-lg transition-colors ${darkMode ? 'hover:bg-zinc-800 text-zinc-400' : 'hover:bg-zinc-100 text-zinc-600'}`}>
+            className="p-1.5 rounded-lg transition-colors text-zinc-500 hover:bg-[var(--color-surface-container-high)]">
             {isFullscreen ? <Minimize size={16} /> : <Maximize size={16} />}
           </button>
         </div>
@@ -940,9 +927,7 @@ export default function PDFReader({
         {/* Main canvas area */}
         <div
           ref={containerRef}
-          className={`flex-1 overflow-auto flex justify-center items-start p-4 relative select-none ${
-            darkMode ? 'bg-zinc-950' : 'bg-zinc-100/60'
-          }`}
+          className="flex-1 overflow-auto flex justify-center items-start p-4 relative select-none bg-[var(--color-surface-container-lowest)]"
         >
           {loading && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-zinc-900/5 backdrop-blur-sm z-50">
@@ -1066,7 +1051,7 @@ export default function PDFReader({
                   <div
                     key={note.id}
                     onClick={(e) => { e.stopPropagation(); setSelectedNote(note); }}
-                    className="absolute z-40 p-1.5 rounded-full bg-amber-500 hover:bg-amber-600 border-2 border-white text-white shadow-md cursor-pointer transition-transform hover:scale-110"
+                    className="absolute z-40 p-1.5 rounded-full bg-[#fa5d19] hover:bg-[#ff7a3d] border-2 border-white text-white shadow-md cursor-pointer transition-transform hover:scale-110"
                     style={{ left: `${note.x}%`, top: `${note.y}%`, transform: 'translate(-50%,-50%)' }}
                     title="Click to view note"
                   >
@@ -1105,14 +1090,12 @@ export default function PDFReader({
                 {notePopup && (
                   <div
                     onClick={(e) => e.stopPropagation()}
-                    className={`absolute z-50 p-4 w-60 rounded-xl shadow-xl border ${
-                      darkMode ? 'bg-zinc-900 border-zinc-700 text-zinc-100' : 'bg-white border-zinc-200 text-zinc-900'
-                    }`}
+                    className="absolute z-50 p-4 w-60 rounded-xl shadow-xl border border-[var(--color-outline-variant)] bg-[var(--color-surface)] text-[var(--color-on-surface)]"
                     style={{ left: `${notePopup.x}%`, top: `${notePopup.y}%` }}
                   >
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-[11px] font-semibold text-zinc-500">Add Sticky Note</span>
-                      <button onClick={() => setNotePopup(null)} className="p-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400">
+                      <button onClick={() => setNotePopup(null)} className="p-1 rounded hover:bg-[var(--color-surface-container-high)] text-zinc-400">
                         <X size={12} />
                       </button>
                     </div>
@@ -1121,14 +1104,12 @@ export default function PDFReader({
                       placeholder="Type your note…"
                       value={noteText}
                       onChange={(e) => setNoteText(e.target.value)}
-                      className={`w-full text-xs p-2 border rounded-lg resize-none outline-none focus:ring-1 focus:ring-amber-500 ${
-                        darkMode ? 'bg-zinc-800 border-zinc-700 text-zinc-100 placeholder-zinc-500' : 'bg-zinc-50 border-zinc-200 text-zinc-800 placeholder-zinc-400'
-                      }`}
+                      className="input-field w-full text-xs p-2 resize-none"
                       autoFocus
                     />
                     <div className="flex justify-end gap-1.5 mt-2">
-                      <button onClick={() => setNotePopup(null)} className="px-2 py-1 rounded text-[10px] bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300">Cancel</button>
-                      <button onClick={handleSaveNote} disabled={!noteText.trim()} className="px-2 py-1 rounded text-[10px] bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white font-medium">Save</button>
+                      <button onClick={() => setNotePopup(null)} className="btn-secondary !h-7 !px-2.5 !py-0 !text-[11px]">Cancel</button>
+                      <button onClick={handleSaveNote} disabled={!noteText.trim()} className="btn-primary !h-7 !px-2.5 !py-0 !text-[11px]">Save</button>
                     </div>
                   </div>
                 )}
@@ -1155,7 +1136,7 @@ export default function PDFReader({
                       style={{
                         color: annotColor,
                         borderColor: annotColor + '88',
-                        backgroundColor: darkMode ? 'rgba(24,24,27,0.95)' : 'rgba(255,255,255,0.97)',
+                        backgroundColor: 'var(--color-surface)',
                       }}
                     />
                   </div>
@@ -1168,23 +1149,21 @@ export default function PDFReader({
 
       {/* ── Selected note card ───────────────────────────────────────────── */}
       {selectedNote && (
-        <div className={`absolute top-20 right-6 z-50 p-4 w-72 rounded-xl shadow-xl border ${
-          darkMode ? 'bg-zinc-900 border-zinc-700 text-zinc-100' : 'bg-white border-zinc-200 text-zinc-900'
-        }`}>
-          <div className="flex items-center justify-between mb-2 pb-2 border-b border-zinc-100 dark:border-zinc-800">
+        <div className="absolute top-20 right-6 z-50 p-4 w-72 rounded-2xl shadow-xl border border-[var(--color-outline-variant)] bg-[var(--color-surface)] text-[var(--color-on-surface)]">
+          <div className="flex items-center justify-between mb-2 pb-2 border-b border-[var(--color-outline-variant)]">
             <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">Note — Page {selectedNote.page}</span>
-            <button onClick={() => setSelectedNote(null)} className="p-1 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded">
+            <button onClick={() => setSelectedNote(null)} className="p-1 text-zinc-400 hover:bg-[var(--color-surface-container-high)] rounded">
               <X size={13} />
             </button>
           </div>
-          <p className="text-sm break-words whitespace-pre-wrap select-text leading-relaxed text-zinc-700 dark:text-zinc-300">
+          <p className="text-xs break-words whitespace-pre-wrap select-text leading-relaxed text-[var(--color-on-surface)]">
             {selectedNote.text}
           </p>
-          <div className="flex items-center justify-between mt-4 pt-2 border-t border-zinc-100 dark:border-zinc-800">
+          <div className="flex items-center justify-between mt-4 pt-2 border-t border-[var(--color-outline-variant)]">
             <span className="text-[10px] font-mono text-zinc-400">{new Date(selectedNote.createdAt).toLocaleDateString()}</span>
             <button
               onClick={() => { if (window.confirm('Delete note?')) { onDeleteNote(selectedNote.id); setSelectedNote(null); } }}
-              className="text-xs text-red-500 hover:text-red-600 flex items-center gap-1"
+              className="text-xs text-red-500 hover:text-red-600 flex items-center gap-1 font-medium"
             >
               <Trash2 size={12} /> Delete
             </button>

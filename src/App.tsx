@@ -36,6 +36,7 @@ import {
   RefreshCw,
   CheckCircle,
   Sparkles,
+  Flame,
 } from 'lucide-react';
 
 // ── Default empty progress ──────────────────────────────────────────────────
@@ -77,7 +78,7 @@ export default function App() {
 
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(true);
   const [annotationsOpen, setAnnotationsOpen] = useState<boolean>(true);
-  const [darkMode, setDarkMode] = useState<boolean>(true);
+  const [darkMode, setDarkMode] = useState<boolean>(false);
 
   const [loadingLibrary, setLoadingLibrary] = useState<boolean>(false);
   const [loadingBookData, setLoadingBookData] = useState<boolean>(false);
@@ -360,6 +361,22 @@ export default function App() {
     );
   };
 
+  const handleDocumentLoad = async (totalPages: number) => {
+    if (!activeBookId) return;
+    setBooks((prev) =>
+      prev.map((b) =>
+        b.id === activeBookId ? { ...b, totalPages } : b
+      )
+    );
+    const current = syncData.books[activeBookId];
+    if (!current || current.totalPages !== totalPages) {
+      await updateBookStats(activeBookId, (p) => ({
+        ...p,
+        totalPages,
+      }));
+    }
+  };
+
   // ── Auth actions ──────────────────────────────────────────────────────────
   const handleLogin = async () => {
     setLoadingInit(true);
@@ -400,13 +417,15 @@ export default function App() {
   // ── Loading screen ────────────────────────────────────────────────────────
   if (loadingInit) {
     return (
-      <div className={`h-screen w-screen flex flex-col items-center justify-center gap-4 ${darkMode ? 'bg-zinc-950 text-zinc-100' : 'bg-zinc-50 text-zinc-900'}`}>
+      <div className="h-screen w-screen flex flex-col items-center justify-center gap-4 bg-[var(--color-background)] text-[var(--color-on-background)]">
         <div className="flex items-center gap-3 mb-2 animate-pulse">
-          <BookOpen className="text-amber-500" size={32} />
+          <div className="p-2.5 rounded-xl bg-[#fa5d19]/10 text-[#fa5d19]">
+            <Flame size={28} />
+          </div>
           <h1 className="text-2xl font-bold tracking-tight">Cloud PDF</h1>
         </div>
-        <div className="animate-spin rounded-full h-8 w-8 border-[3px] border-amber-500 border-t-transparent" />
-        <p className="text-xs font-mono text-zinc-500 animate-pulse">Synchronizing…</p>
+        <div className="animate-spin rounded-full h-8 w-8 border-[3px] border-[#fa5d19] border-t-transparent" />
+        <p className="text-xs font-mono text-zinc-500 animate-pulse">Synchronizing workspace…</p>
       </div>
     );
   }
@@ -414,43 +433,47 @@ export default function App() {
   // ── Sign-in screen ────────────────────────────────────────────────────────
   if (needsAuth) {
     return (
-      <div className={`h-screen w-screen flex flex-col items-center justify-center transition-colors duration-300 ${darkMode ? 'bg-zinc-950 text-zinc-100' : 'bg-zinc-50 text-zinc-900'}`}>
-        <div className="absolute top-10 right-10">
+      <div className="h-screen w-screen flex flex-col items-center justify-center transition-colors duration-300 bg-[var(--color-background)] text-[var(--color-on-background)] relative overflow-hidden">
+        {/* Subtle heat ambient glow in corner */}
+        <div className="absolute -top-40 -right-40 w-96 h-96 bg-[#fa5d19]/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-40 -left-40 w-96 h-96 bg-[#9061ff]/10 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="absolute top-8 right-8">
           <button
             onClick={() => setDarkMode(!darkMode)}
-            className={`p-2.5 rounded-xl border transition-colors ${darkMode ? 'border-zinc-800 bg-zinc-900 text-zinc-300 hover:bg-zinc-800' : 'border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50'}`}
+            className="btn-secondary text-xs"
           >
-            {darkMode ? '☀️ Light' : '🌙 Dark'}
+            {darkMode ? '☀️ Light Mode' : '🌙 Dark Mode'}
           </button>
         </div>
 
-        <div className={`w-full max-w-md p-8 rounded-2xl border text-center ${darkMode ? 'bg-zinc-900/60 border-zinc-800 shadow-2xl' : 'bg-white border-zinc-200 shadow-xl'}`}>
-          <div className="inline-flex p-3 rounded-2xl bg-amber-500/10 mb-4 animate-bounce">
-            <BookOpen className="text-amber-500" size={36} />
+        <div className="w-full max-w-md p-8 rounded-2xl border text-center card-surface backdrop-blur-sm z-10">
+          <div className="inline-flex p-3 rounded-2xl bg-[#fa5d19]/10 text-[#fa5d19] mb-4 shadow-sm">
+            <Flame size={36} />
           </div>
           <h2 className="text-2xl font-bold tracking-tight mb-2">Cloud PDF Sync Reader</h2>
           <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-6">
-            Read, annotate, and sync highlights and drawings across all devices.
+            Read, annotate, and sync highlights and drawings across all devices with Google Drive.
           </p>
 
           <div className="text-left space-y-3 mb-8 px-2">
             {[
-              ['Google Drive Integration', 'Stores books and annotations on your private Drive.'],
-              ['Rich Annotation Suite', 'Freehand ink, shapes, highlights, sticky notes & text boxes.'],
-              ['Eye-Safe Reading', 'Dark mode with smart PDF inversion.'],
+              ['Google Drive Integration', 'Stores books and annotations directly on your private Drive.'],
+              ['Rich Heat-Driven Annotation', 'Freehand ink, precision shapes, highlighters, sticky notes & text.'],
+              ['Eye-Safe Reading', 'Clean technical interface with instant dark mode inversion.'],
             ].map(([title, desc]) => (
               <div key={title} className="flex items-start gap-3 text-xs leading-relaxed">
-                <span className="p-1 rounded-md bg-zinc-100 dark:bg-zinc-800 text-amber-500 font-bold">✓</span>
+                <span className="p-1 rounded-md bg-[#fa5d19]/10 text-[#fa5d19] font-bold">✓</span>
                 <div>
-                  <strong className="block font-medium">{title}</strong>
-                  <span className="text-zinc-400">{desc}</span>
+                  <strong className="block font-medium text-[var(--color-on-surface)]">{title}</strong>
+                  <span className="text-zinc-500 dark:text-zinc-400">{desc}</span>
                 </div>
               </div>
             ))}
           </div>
 
           {actionError && (
-            <div className="mb-4 p-3.5 rounded-xl border border-red-500/10 bg-red-500/[0.02] text-xs text-red-500 flex items-center gap-2">
+            <div className="mb-4 p-3.5 rounded-xl border border-red-500/20 bg-red-500/5 text-xs text-red-500 flex items-center gap-2">
               <ShieldAlert size={14} className="shrink-0" />
               <p className="text-left">{actionError}</p>
             </div>
@@ -458,7 +481,7 @@ export default function App() {
 
           <button
             onClick={handleLogin}
-            className="w-full flex items-center justify-center gap-3 bg-amber-500 hover:bg-amber-600 font-semibold py-3 px-4 rounded-xl text-white transition-all shadow-md text-sm"
+            className="w-full btn-primary py-3 px-4 text-sm font-semibold shadow-md rounded-xl"
           >
             <svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" className="w-5 h-5 bg-white p-0.5 rounded-full">
               <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
@@ -469,8 +492,8 @@ export default function App() {
             <span>Sync Google Drive Account</span>
           </button>
 
-          <p className="text-[10px] text-zinc-500 mt-4 font-mono">
-            Requires minimum Workspace API scopes to sync books folder.
+          <p className="text-[10px] text-zinc-400 mt-4 font-mono">
+            Requires minimum Google Drive API scopes to sync books folder.
           </p>
         </div>
       </div>
@@ -479,7 +502,7 @@ export default function App() {
 
   // ── Main app ──────────────────────────────────────────────────────────────
   return (
-    <div className={`h-screen w-screen flex overflow-hidden transition-colors duration-300 font-sans ${darkMode ? 'bg-zinc-950 text-zinc-100' : 'bg-white text-zinc-900'}`}>
+    <div className="h-screen w-screen flex overflow-hidden transition-colors duration-300 bg-[var(--color-background)] text-[var(--color-on-background)]">
 
       {/* Document sidebar */}
       {sidebarOpen && (
@@ -500,11 +523,11 @@ export default function App() {
       <div className="flex-1 h-full flex flex-col min-w-0 overflow-hidden relative">
 
         {/* Top bar */}
-        <div className={`h-14 px-6 flex items-center justify-between border-b shrink-0 ${darkMode ? 'border-zinc-800 bg-zinc-900/10' : 'border-zinc-100 bg-zinc-50/10'}`}>
+        <div className="h-14 px-6 flex items-center justify-between border-b border-[var(--color-outline-variant)] bg-[var(--color-surface)]/80 backdrop-blur-sm shrink-0">
           <div className="flex items-center gap-4">
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              className={`p-2 rounded-lg border transition-colors ${darkMode ? 'border-zinc-800 bg-zinc-900/60 hover:bg-zinc-800 text-zinc-300' : 'border-zinc-200 bg-white hover:bg-zinc-100 text-zinc-700'}`}
+              className="btn-secondary !h-8 !px-2.5 !py-1"
               title="Toggle library sidebar"
             >
               <Menu size={16} />
@@ -513,13 +536,13 @@ export default function App() {
             <div className="flex items-center gap-1.5">
               {isSaving ? (
                 <div className="flex items-center gap-1.5 text-zinc-500">
-                  <RefreshCw size={13} className="animate-spin text-amber-500" />
-                  <span className="text-[10px]">Backing up…</span>
+                  <RefreshCw size={13} className="animate-spin text-[#fa5d19]" />
+                  <span className="text-[11px] font-mono">Backing up…</span>
                 </div>
               ) : (
                 <div className="flex items-center gap-1.5 text-zinc-500">
                   <CheckCircle size={13} className="text-emerald-500" />
-                  <span className="text-[10px] font-mono">Synced</span>
+                  <span className="text-[11px] font-mono">Synced</span>
                 </div>
               )}
             </div>
@@ -527,37 +550,37 @@ export default function App() {
 
           <div className="flex items-center gap-2">
             {activeBookId && (
-              <span className="text-[11px] font-medium max-w-[180px] sm:max-w-xs truncate bg-zinc-100 dark:bg-zinc-900 text-zinc-500 px-3 py-1.5 rounded-full">
-                📖 {books.find((b) => b.id === activeBookId)?.name || 'PDF'}
+              <span className="text-[12px] font-medium max-w-[180px] sm:max-w-xs truncate bg-[var(--color-surface-container-high)] text-[var(--color-on-surface)] px-3 py-1.5 rounded-full border border-[var(--color-outline-variant)]">
+                📄 {books.find((b) => b.id === activeBookId)?.name || 'PDF'}
               </span>
             )}
 
             <button
               onClick={() => setAnnotationsOpen(!annotationsOpen)}
-              className={`p-2 rounded-lg border transition-colors flex items-center gap-1.5 ${
+              className={`btn-secondary !h-8 !px-3 !py-1 text-xs ${
                 annotationsOpen
-                  ? 'bg-amber-100 border-amber-200 dark:bg-amber-950/20 dark:border-amber-900 text-amber-700 dark:text-amber-300'
-                  : 'border-zinc-200 dark:border-zinc-800 dark:bg-zinc-900/40 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500'
+                  ? '!bg-[#fa5d19]/10 !text-[#fa5d19] !border-[#fa5d19]/30 font-semibold'
+                  : ''
               }`}
               title="Toggle annotations panel"
             >
               <Tag size={14} />
-              <span className="text-xs font-medium hidden sm:inline">Annotations</span>
+              <span className="hidden sm:inline">Annotations</span>
             </button>
           </div>
         </div>
 
         {/* Content */}
-        <div className="flex-1 min-h-0 relative">
+        <div className="flex-1 min-h-0 relative bg-[var(--color-surface-container-lowest)]">
           {actionError && (
-            <div className="absolute top-4 left-4 right-4 z-50 p-4 rounded-xl border border-red-500/15 bg-red-500/5 text-xs text-red-500 flex items-center justify-between">
+            <div className="absolute top-4 left-4 right-4 z-50 p-4 rounded-xl border border-red-500/20 bg-red-500/10 text-xs text-red-500 flex items-center justify-between shadow-lg">
               <div className="flex items-center gap-2">
-                <ShieldAlert size={14} />
+                <ShieldAlert size={15} />
                 <p className="font-medium">{actionError}</p>
               </div>
               <button
                 onClick={() => loadFullLibraryData(getAccessToken()!)}
-                className="px-2.5 py-1 text-[10px] font-medium bg-red-100 hover:bg-red-200 dark:bg-red-950/40 text-red-700 dark:text-red-300 rounded-md shrink-0"
+                className="px-2.5 py-1 text-[11px] font-semibold bg-red-500 text-white rounded-lg shadow-xs hover:bg-red-600 transition-colors"
               >
                 Retry
               </button>
@@ -565,14 +588,14 @@ export default function App() {
           )}
 
           {loadingBookData && (
-            <div className="absolute inset-0 z-40 flex flex-col items-center justify-center gap-3 bg-zinc-900/5 dark:bg-zinc-950/20 backdrop-blur-sm">
-              <div className="animate-spin rounded-full h-11 w-11 border-2 border-amber-500 border-t-transparent" />
-              <p className="text-sm font-medium text-zinc-500 animate-pulse">Downloading document…</p>
+            <div className="absolute inset-0 z-40 flex flex-col items-center justify-center gap-3 bg-[var(--color-surface)]/60 backdrop-blur-sm">
+              <div className="animate-spin rounded-full h-11 w-11 border-2 border-[#fa5d19] border-t-transparent" />
+              <p className="text-xs font-mono font-medium text-zinc-500 animate-pulse">Downloading document…</p>
             </div>
           )}
 
           {activeBookBytes ? (
-            <div className="w-full h-full p-4 md:p-6 overflow-hidden">
+            <div className="w-full h-full p-3 md:p-5 overflow-hidden">
               <PDFReader
                 pdfData={activeBookBytes}
                 currentPage={activeBookPage}
@@ -592,21 +615,22 @@ export default function App() {
                 onDeleteShape={handleDeleteShape}
                 onAddTextBox={handleAddTextBox}
                 onDeleteTextBox={handleDeleteTextBox}
+                onDocumentLoad={handleDocumentLoad}
                 darkMode={darkMode}
               />
             </div>
           ) : (
             <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center max-w-md mx-auto">
-              <div className="p-4 rounded-2xl bg-zinc-100 dark:bg-zinc-900 text-zinc-400 dark:text-zinc-600 mb-4 animate-pulse">
+              <div className="p-4 rounded-2xl bg-[#fa5d19]/10 text-[#fa5d19] mb-4 shadow-sm">
                 <BookOpen size={40} />
               </div>
-              <h3 className="text-base font-semibold mb-1.5">Welcome to Cloud PDF</h3>
-              <p className="text-xs text-zinc-400 leading-relaxed mb-4">
+              <h3 className="text-base font-semibold mb-1.5 text-[var(--color-on-surface)]">Welcome to Cloud PDF</h3>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed mb-4">
                 Your bookshelf is empty! Upload a PDF via the sidebar to start reading and annotating.
               </p>
-              <div className="p-3 bg-amber-500/5 rounded-xl border border-amber-500/10 text-[11px] text-zinc-400 leading-relaxed">
-                <Sparkles size={14} className="text-amber-500 inline mr-1" />
-                All annotations — ink, shapes, highlights, and notes — sync to your Google Drive.
+              <div className="p-3 bg-[#fa5d19]/5 rounded-xl border border-[#fa5d19]/15 text-[12px] text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                <Sparkles size={14} className="text-[#fa5d19] inline mr-1" />
+                All annotations — ink, shapes, highlights, and notes — sync seamlessly with your Google Drive.
               </div>
             </div>
           )}

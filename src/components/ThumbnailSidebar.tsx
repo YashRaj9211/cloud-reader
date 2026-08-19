@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 
-
 interface ThumbnailSidebarProps {
   pdf: any; // pdfjs PDFDocumentProxy
   totalPages: number;
@@ -100,7 +99,7 @@ export default function ThumbnailSidebar({
         });
       },
       { 
-        rootMargin: '400px 0px', // Buffer zone to load before and keep slightly after viewport
+        rootMargin: '400px 0px',
         threshold: 0.0 
       }
     );
@@ -121,22 +120,12 @@ export default function ThumbnailSidebar({
   }, [currentPage]);
 
   return (
-    <div
-      className={`w-24 flex-shrink-0 flex flex-col border-r overflow-y-auto transition-colors duration-300 custom-scrollbar ${
-        darkMode
-          ? 'bg-zinc-900 border-zinc-800'
-          : 'bg-zinc-50 border-zinc-200'
-      }`}
-    >
-      <div
-        className={`px-2 py-2 text-[9px] font-semibold uppercase tracking-widest text-center border-b ${
-          darkMode ? 'text-zinc-600 border-zinc-800' : 'text-zinc-400 border-zinc-200'
-        }`}
-      >
+    <div className="w-24 flex-shrink-0 flex flex-col border-r border-[var(--color-outline-variant)] bg-[var(--color-surface)] overflow-y-auto transition-colors duration-300 custom-scrollbar">
+      <div className="px-2 py-2 text-[9px] font-semibold uppercase tracking-widest text-center border-b border-[var(--color-outline-variant)] text-zinc-400">
         Pages
       </div>
 
-      <div className="flex flex-col items-center gap-2 py-2 px-1.5">
+      <div className="flex flex-col items-center gap-2.5 py-3 px-2">
         {thumbnails.map((thumb, i) => {
           const isActive = thumb.page === currentPage;
           return (
@@ -148,12 +137,10 @@ export default function ThumbnailSidebar({
               }}
               data-page={thumb.page}
               onClick={() => onPageSelect(thumb.page)}
-              className={`w-full cursor-pointer rounded-md overflow-hidden transition-all duration-150 select-none ${
+              className={`w-full cursor-pointer rounded-lg overflow-hidden transition-all duration-150 select-none ${
                 isActive
-                  ? 'ring-2 ring-amber-500 shadow-md scale-[1.03]'
-                  : darkMode
-                  ? 'ring-1 ring-zinc-700 hover:ring-zinc-500'
-                  : 'ring-1 ring-zinc-200 hover:ring-zinc-400'
+                  ? 'ring-2 ring-[#fa5d19] shadow-md scale-[1.03]'
+                  : 'ring-1 ring-[var(--color-outline-variant)] hover:ring-zinc-400'
               }`}
             >
               {thumb.dataUrl ? (
@@ -168,21 +155,15 @@ export default function ThumbnailSidebar({
                   draggable={false}
                 />
               ) : (
-                <div
-                  className={`w-full aspect-[3/4] flex items-center justify-center animate-pulse ${
-                    darkMode ? 'bg-zinc-800' : 'bg-zinc-200'
-                  }`}
-                >
-                  <span className="text-[9px] text-zinc-500">{thumb.page}</span>
+                <div className="w-full aspect-[3/4] flex items-center justify-center animate-pulse bg-[var(--color-surface-container-high)]">
+                  <span className="text-[9px] text-zinc-500 font-mono">{thumb.page}</span>
                 </div>
               )}
               <div
-                className={`text-center text-[8px] font-mono py-0.5 ${
+                className={`text-center text-[9px] font-mono py-0.5 ${
                   isActive
-                    ? 'text-amber-500 font-bold'
-                    : darkMode
-                    ? 'text-zinc-600'
-                    : 'text-zinc-400'
+                    ? 'text-[#fa5d19] font-bold bg-[#fa5d19]/10'
+                    : 'text-zinc-400 bg-[var(--color-surface-container-low)]'
                 }`}
               >
                 {thumb.page}
