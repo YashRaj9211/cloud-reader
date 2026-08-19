@@ -37,6 +37,7 @@ import {
   CheckCircle,
   Sparkles,
   Flame,
+  LogOut,
 } from 'lucide-react';
 
 // ── Default empty progress ──────────────────────────────────────────────────
@@ -567,6 +568,16 @@ export default function App() {
               <Tag size={14} />
               <span className="hidden sm:inline">Annotations</span>
             </button>
+
+            {!sidebarOpen && user && (
+              <button
+                onClick={handleLogout}
+                className="btn-secondary !h-8 !w-8 !p-0 text-zinc-400 hover:text-red-500"
+                title="Disconnect Google Sync / Logout"
+              >
+                <LogOut size={15} />
+              </button>
+            )}
           </div>
         </div>
 

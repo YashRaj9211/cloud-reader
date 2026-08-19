@@ -21,8 +21,16 @@ provider.addScope('https://www.googleapis.com/auth/drive.file');
 provider.addScope('https://www.googleapis.com/auth/userinfo.profile');
 provider.addScope('https://www.googleapis.com/auth/userinfo.email');
 
-// Keep token in memory (never storage) for safety as per requirements
-let cachedAccessToken: string | null = null;
+const TOKEN_STORAGE_KEY = 'cloud_pdf_google_access_token';
+
+// Read cached access token from localStorage on initial load
+let cachedAccessToken: string | null = (() => {
+  try {
+    return localStorage.getItem(TOKEN_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+})();
 let isSigningIn = false;
 
 // Initialize auth state listener.
@@ -35,12 +43,14 @@ export const initAuth = (
       if (cachedAccessToken) {
         onAuthSuccess(user, cachedAccessToken);
       } else if (!isSigningIn) {
-        // Trigger silent token refresh or let user click to re-authenticate if token is lost
-        // Since Firebase doesn't cache client-side Google API direct credentials locally without popup,
+        // If token is missing from storage, signal that sign-in is needed
         onAuthFailure();
       }
     } else {
       cachedAccessToken = null;
+      try {
+        localStorage.removeItem(TOKEN_STORAGE_KEY);
+      } catch {}
       onAuthFailure();
     }
   });
@@ -56,6 +66,11 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
     }
 
     cachedAccessToken = credential.accessToken;
+    try {
+      localStorage.setItem(TOKEN_STORAGE_KEY, cachedAccessToken);
+    } catch (e) {
+      console.warn('Could not save access token to localStorage:', e);
+    }
     return { user: result.user, accessToken: cachedAccessToken };
   } catch (error) {
     console.error('Google Sign-In Error:', error);
@@ -66,10 +81,22 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
 };
 
 export const getAccessToken = (): string | null => {
+  if (!cachedAccessToken) {
+    try {
+      cachedAccessToken = localStorage.getItem(TOKEN_STORAGE_KEY);
+    } catch {}
+  }
   return cachedAccessToken;
 };
 
 export const logout = async () => {
-  await auth.signOut();
-  cachedAccessToken = null;
+  try {
+    await auth.signOut();
+  } finally {
+    cachedAccessToken = null;
+    try {
+      localStorage.removeItem(TOKEN_STORAGE_KEY);
+    } catch {}
+  }
 };
+
