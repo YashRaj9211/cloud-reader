@@ -9,6 +9,7 @@ import {
   Pen,
   Square,
   Type,
+  X,
 } from 'lucide-react';
 import { Highlight, StickyNote, InkStroke, ShapeAnnotation, TextBox } from '../types';
 
@@ -25,6 +26,7 @@ interface AnnotationPanelProps {
   onDeleteShape: (id: string) => void;
   onDeleteTextBox: (id: string) => void;
   darkMode: boolean;
+  onClose?: () => void;
 }
 
 type AnnotationFilter = 'all' | 'highlights' | 'notes' | 'ink' | 'shapes' | 'text';
@@ -51,6 +53,7 @@ export default function AnnotationPanel({
   onDeleteShape,
   onDeleteTextBox,
   darkMode,
+  onClose,
 }: AnnotationPanelProps) {
   const [filter, setFilter] = useState<AnnotationFilter>('all');
   const [search, setSearch] = useState('');
@@ -181,26 +184,36 @@ export default function AnnotationPanel({
   ];
 
   return (
-    <div className="w-72 h-full flex flex-col border-l border-[var(--color-outline-variant)] bg-[var(--color-surface)] text-[var(--color-on-surface)] transition-colors duration-300">
+    <div className="w-full sm:w-80 md:w-72 h-full flex flex-col border-l border-[var(--color-outline-variant)] bg-[var(--color-surface)] text-[var(--color-on-surface)] transition-colors duration-300">
       {/* Header */}
       <div className="p-4 border-b border-[var(--color-outline-variant)] flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Tag className="text-[#fa5d19]" size={16} />
           <h2 className="text-sm font-semibold tracking-tight">Annotations</h2>
+          <span className="badge-heat font-mono text-[10px] ml-1">
+            {sorted.length}
+          </span>
         </div>
-        <span className="badge-heat font-mono text-[10px]">
-          {sorted.length}
-        </span>
+        
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="btn-secondary !h-8 !w-8 !p-0 md:hidden text-zinc-400 hover:text-[var(--color-on-surface)]"
+            title="Close annotations"
+          >
+            <X size={16} />
+          </button>
+        )}
       </div>
 
       {/* Filters */}
       <div className="p-3 space-y-2.5">
-        <div className="flex flex-wrap gap-1">
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
           {filters.map(({ id, label }) => (
             <button
               key={id}
               onClick={() => setFilter(id)}
-              className={`chip-tag !py-0.5 !px-2.5 !text-[11px] ${filter === id ? 'active' : ''}`}
+              className={`chip-tag !py-0.5 !px-2.5 !text-[11px] shrink-0 ${filter === id ? 'active' : ''}`}
             >
               {label}
             </button>
@@ -214,7 +227,7 @@ export default function AnnotationPanel({
             placeholder="Search annotations…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="input-field w-full pl-8 pr-3 !py-1 text-[11px]"
+            className="input-field w-full pl-8 pr-3 !py-1.5 text-xs"
           />
         </div>
       </div>

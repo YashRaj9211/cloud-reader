@@ -254,3 +254,20 @@
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background-color: var(--color-outline);
 }
+
+/* Mobile Touch & Layout Optimizations */
+.touch-drawing-surface {
+  touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+

@@ -107,7 +107,7 @@ export default function PDFReader({
   const [activeShape, setActiveShape] = useState<ShapeKind>('rect');
   const [zoom, setZoom] = useState<number>(1.0);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
-  const [thumbnailOpen, setThumbnailOpen] = useState<boolean>(true);
+  const [thumbnailOpen, setThumbnailOpen] = useState<boolean>(() => typeof window !== 'undefined' ? window.innerWidth >= 1024 : false);
 
   // ── Annotation colours & sizes ────────────────────────────────────────────
   const [annotColor, setAnnotColor] = useState<string>('#fa5d19');
@@ -262,13 +262,16 @@ export default function PDFReader({
     if (!pdf || !containerRef.current) return;
     pdf.getPage(currentPage).then((page: any) => {
       const vp = page.getViewport({ scale: 1.0 });
-      const containerH = containerRef.current!.clientHeight - 64;
-      const containerW = containerRef.current!.clientWidth - 64;
-      const widthScale = containerW / vp.width;
+      const containerH = containerRef.current!.clientHeight - 32;
+      const effectiveW = (containerWidth > 0 ? containerWidth : containerRef.current!.clientWidth) - 32;
+      
+      const widthScale = effectiveW / vp.width;
       const heightScale = containerH / vp.height;
-      setZoom(Math.min(widthScale, heightScale) / widthScale);
-    });
-  }, [pdf, currentPage]);
+      
+      const targetZoom = Math.min(widthScale, heightScale) / widthScale;
+      setZoom(Math.max(0.3, Math.min(3.0, targetZoom)));
+    }).catch(console.error);
+  }, [pdf, currentPage, containerWidth]);
 
   // ─── Palette & toolbar helpers ────────────────────────────────────────────
   const paletteColors = [
@@ -330,19 +333,20 @@ export default function PDFReader({
       id="pdf-reader-root"
       className="flex flex-col h-full rounded-2xl border border-[var(--color-outline-variant)] bg-[var(--color-surface)] text-[var(--color-on-surface)] transition-colors duration-300 overflow-hidden shadow-sm"
     >
-      {/* ── Toolbar ─────────────────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-[var(--color-outline-variant)] bg-[var(--color-surface)] shrink-0">
+      {/* ── Toolbar ── */}
+      <div className="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 border-b border-[var(--color-outline-variant)] bg-[var(--color-surface)] shrink-0 overflow-x-auto no-scrollbar">
         {/* Page navigation */}
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-0.5 sm:gap-1 shrink-0">
           <button
             id="reader-prev-btn"
             onClick={() => handlePageSelectAndScroll(currentPage - 1)}
             disabled={currentPage <= 1 || loading}
-            className="p-1.5 rounded-lg transition-colors text-zinc-500 hover:bg-[var(--color-surface-container-high)] disabled:opacity-30"
+            className="p-1 sm:p-1.5 rounded-lg transition-colors text-zinc-500 hover:bg-[var(--color-surface-container-high)] disabled:opacity-30"
+            title="Previous page"
           >
-            <ChevronLeft size={18} />
+            <ChevronLeft size={16} />
           </button>
-          <div className="flex items-center gap-1 text-xs font-mono px-2 py-1 rounded-lg border border-[var(--color-outline-variant)] bg-[var(--color-surface-container-lowest)]">
+          <div className="flex items-center gap-0.5 sm:gap-1 text-xs font-mono px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-lg border border-[var(--color-outline-variant)] bg-[var(--color-surface-container-lowest)]">
             <input
               id="reader-page-jump"
               type="number"
@@ -353,54 +357,55 @@ export default function PDFReader({
                 const v = parseInt(e.target.value, 10);
                 if (v >= 1 && v <= totalPages) handlePageSelectAndScroll(v);
               }}
-              className="w-10 text-center bg-transparent outline-none font-semibold text-[var(--color-on-surface)]"
+              className="w-8 sm:w-10 text-center bg-transparent outline-none font-semibold text-[var(--color-on-surface)]"
             />
-            <span className="text-zinc-400">/ {totalPages}</span>
+            <span className="text-zinc-400">/{totalPages}</span>
           </div>
           <button
             id="reader-next-btn"
             onClick={() => handlePageSelectAndScroll(currentPage + 1)}
             disabled={currentPage >= totalPages || loading}
-            className="p-1.5 rounded-lg transition-colors text-zinc-500 hover:bg-[var(--color-surface-container-high)] disabled:opacity-30"
+            className="p-1 sm:p-1.5 rounded-lg transition-colors text-zinc-500 hover:bg-[var(--color-surface-container-high)] disabled:opacity-30"
+            title="Next page"
           >
-            <ChevronRight size={18} />
+            <ChevronRight size={16} />
           </button>
         </div>
 
         {divider}
 
         {/* ── Continuous Scroll / Single Page Toggle ── */}
-        <div className="flex items-center p-0.5 rounded-lg border border-[var(--color-outline-variant)] bg-[var(--color-surface-container-lowest)]">
+        <div className="flex items-center p-0.5 rounded-lg border border-[var(--color-outline-variant)] bg-[var(--color-surface-container-lowest)] shrink-0">
           <button
             onClick={() => setIsContinuous(true)}
-            title="Continuous Scroll Mode"
-            className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium transition-all ${
+            title="Continuous Scroll"
+            className={`flex items-center justify-center p-1 sm:px-2 sm:py-1 rounded-md text-[11px] sm:text-xs font-medium transition-all ${
               isContinuous
                 ? 'bg-[#fa5d19] text-white shadow-sm'
                 : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'
             }`}
           >
             <ScrollText size={14} />
-            <span className="hidden sm:inline">Continuous</span>
+            <span className="hidden md:inline ml-1">Continuous</span>
           </button>
           <button
             onClick={() => setIsContinuous(false)}
-            title="Single Page Mode"
-            className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium transition-all ${
+            title="Single Page"
+            className={`flex items-center justify-center p-1 sm:px-2 sm:py-1 rounded-md text-[11px] sm:text-xs font-medium transition-all ${
               !isContinuous
                 ? 'bg-[#fa5d19] text-white shadow-sm'
                 : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'
             }`}
           >
             <FileText size={14} />
-            <span className="hidden sm:inline">Single</span>
+            <span className="hidden md:inline ml-1">Single</span>
           </button>
         </div>
 
         {divider}
 
         {/* ── View + Highlight + Note ── */}
-        <div className="flex items-center gap-0.5">
+        <div className="flex items-center gap-0.5 shrink-0">
           {toolBtn('tool-view', 'view', <MousePointer size={15} />, 'Navigate')}
           {toolBtn('tool-highlight', 'highlight', <Highlighter size={15} />, 'Highlight')}
           {/* Highlighter size selector */}
@@ -427,13 +432,13 @@ export default function PDFReader({
         {divider}
 
         {/* ── Pen + Eraser ── */}
-        <div className="flex items-center gap-0.5">
+        <div className="flex items-center gap-0.5 shrink-0">
           {toolBtn('tool-ink', 'ink', <Pen size={15} />, 'Pen')}
           {toolMode === 'ink' && (
             <select
               value={inkWidth}
               onChange={(e) => setInkWidth(Number(e.target.value))}
-              className="text-xs rounded-md px-1.5 py-1 border border-[var(--color-outline-variant)] bg-[var(--color-surface)] text-[var(--color-on-surface)] outline-none"
+              className="text-xs rounded-md px-1 py-0.5 border border-[var(--color-outline-variant)] bg-[var(--color-surface)] text-[var(--color-on-surface)] outline-none"
             >
               {[1, 2, 3, 5, 8].map((w) => <option key={w} value={w}>{w}px</option>)}
             </select>
@@ -444,7 +449,7 @@ export default function PDFReader({
         {divider}
 
         {/* ── Shapes + Text ── */}
-        <div className="flex items-center gap-0.5">
+        <div className="flex items-center gap-0.5 shrink-0">
           {shapeBtn('rect', <Square size={15} />, 'Rectangle')}
           {shapeBtn('circle', <Circle size={15} />, 'Circle')}
           {shapeBtn('line', <Minus size={15} />, 'Line')}
@@ -455,7 +460,7 @@ export default function PDFReader({
         {divider}
 
         {/* ── Colour palette ── */}
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 shrink-0">
           {paletteColors.map((c) => (
             <button
               key={c}
@@ -472,33 +477,33 @@ export default function PDFReader({
         {divider}
 
         {/* ── Zoom ── */}
-        <div className="flex items-center gap-0.5">
+        <div className="flex items-center gap-0.5 shrink-0">
           <button
             onClick={() => setZoom((p) => Math.max(0.4, p - 0.1))}
-            className="p-1.5 rounded-lg transition-colors text-zinc-500 hover:bg-[var(--color-surface-container-high)]"
+            className="p-1 sm:p-1.5 rounded-lg transition-colors text-zinc-500 hover:bg-[var(--color-surface-container-high)]"
             title="Zoom Out"
           >
-            <ZoomOut size={16} />
+            <ZoomOut size={15} />
           </button>
-          <span className="text-xs font-mono w-9 text-center text-zinc-500">{Math.round(zoom * 100)}%</span>
+          <span className="text-[11px] sm:text-xs font-mono w-8 sm:w-9 text-center text-zinc-500">{Math.round(zoom * 100)}%</span>
           <button
             onClick={() => setZoom((p) => Math.min(3.0, p + 0.1))}
-            className="p-1.5 rounded-lg transition-colors text-zinc-500 hover:bg-[var(--color-surface-container-high)]"
+            className="p-1 sm:p-1.5 rounded-lg transition-colors text-zinc-500 hover:bg-[var(--color-surface-container-high)]"
             title="Zoom In"
           >
-            <ZoomIn size={16} />
+            <ZoomIn size={15} />
           </button>
           <button
             onClick={fitToWidth}
             title="Fit to Width"
-            className="px-2 py-1 rounded-lg text-[10px] font-medium transition-colors text-zinc-500 hover:bg-[var(--color-surface-container-high)]"
+            className="px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-lg text-[10px] sm:text-xs font-medium transition-colors text-zinc-600 dark:text-zinc-400 hover:bg-[var(--color-surface-container-high)] border border-[var(--color-outline-variant)]/60"
           >
             Width
           </button>
           <button
             onClick={fitToPage}
             title="Fit to Page"
-            className="px-2 py-1 rounded-lg text-[10px] font-medium transition-colors text-zinc-500 hover:bg-[var(--color-surface-container-high)]"
+            className="px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-lg text-[10px] sm:text-xs font-medium transition-colors text-zinc-600 dark:text-zinc-400 hover:bg-[var(--color-surface-container-high)] border border-[var(--color-outline-variant)]/60"
           >
             Page
           </button>
@@ -507,45 +512,60 @@ export default function PDFReader({
         {divider}
 
         {/* ── View toggles ── */}
-        <div className="flex items-center gap-0.5">
+        <div className="flex items-center gap-0.5 shrink-0">
           <button
             onClick={() => setThumbnailOpen((p) => !p)}
             title="Toggle thumbnails"
-            className={`p-1.5 rounded-lg transition-colors ${
+            className={`p-1 sm:p-1.5 rounded-lg transition-colors ${
               thumbnailOpen
                 ? 'bg-[#fa5d19]/10 text-[#fa5d19]'
                 : 'text-zinc-500 hover:bg-[var(--color-surface-container-high)]'
             }`}
           >
-            <AlignJustify size={16} />
+            <AlignJustify size={15} />
           </button>
           <button
             onClick={toggleFullscreen}
             title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
-            className="p-1.5 rounded-lg transition-colors text-zinc-500 hover:bg-[var(--color-surface-container-high)]"
+            className="p-1 sm:p-1.5 rounded-lg transition-colors text-zinc-500 hover:bg-[var(--color-surface-container-high)]"
           >
-            {isFullscreen ? <Minimize size={16} /> : <Maximize size={16} />}
+            {isFullscreen ? <Minimize size={15} /> : <Maximize size={15} />}
           </button>
         </div>
       </div>
 
       {/* ── Body ─────────────────────────────────────────────────────────── */}
-      <div className="flex flex-1 min-h-0 overflow-hidden">
+      <div className="flex flex-1 min-h-0 overflow-hidden relative">
+        {/* Mobile backdrop for thumbnail sidebar */}
+        {thumbnailOpen && pdf && !loading && (
+          <div
+            onClick={() => setThumbnailOpen(false)}
+            className="fixed inset-0 bg-black/40 backdrop-blur-xs z-30 md:hidden"
+          />
+        )}
+
         {/* Thumbnail sidebar */}
         {thumbnailOpen && pdf && !loading && (
-          <ThumbnailSidebar
-            pdf={pdf}
-            totalPages={totalPages}
-            currentPage={currentPage}
-            onPageSelect={handlePageSelectAndScroll}
-            darkMode={darkMode}
-          />
+          <div className="fixed inset-y-0 left-0 z-40 md:static md:z-auto h-full shadow-2xl md:shadow-none">
+            <ThumbnailSidebar
+              pdf={pdf}
+              totalPages={totalPages}
+              currentPage={currentPage}
+              onPageSelect={(page) => {
+                handlePageSelectAndScroll(page);
+                if (window.innerWidth < 768) {
+                  setThumbnailOpen(false);
+                }
+              }}
+              darkMode={darkMode}
+            />
+          </div>
         )}
 
         {/* Main scroll / canvas container */}
         <div
           ref={containerRef}
-          className="flex-1 overflow-auto p-4 relative select-none bg-[var(--color-surface-container-lowest)] scroll-smooth"
+          className="flex-1 overflow-auto p-2 sm:p-4 relative select-none bg-[var(--color-surface-container-lowest)] scroll-smooth"
         >
           {loading && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-zinc-900/5 backdrop-blur-sm z-50">

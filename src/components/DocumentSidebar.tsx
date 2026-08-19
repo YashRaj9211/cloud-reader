@@ -9,6 +9,7 @@ import {
   Moon,
   Sun,
   Flame,
+  X,
 } from 'lucide-react';
 import { Book } from '../types';
 
@@ -22,6 +23,7 @@ interface DocumentSidebarProps {
   onLogout: () => void;
   darkMode: boolean;
   onToggleDarkMode: () => void;
+  onClose?: () => void;
 }
 
 export default function DocumentSidebar({
@@ -34,6 +36,7 @@ export default function DocumentSidebar({
   onLogout,
   darkMode,
   onToggleDarkMode,
+  onClose,
 }: DocumentSidebarProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [isDragging, setIsDragging] = useState(false);
@@ -99,27 +102,40 @@ export default function DocumentSidebar({
   };
 
   return (
-    <div className="w-80 h-full flex flex-col border-r border-[var(--color-outline-variant)] bg-[var(--color-surface)] text-[var(--color-on-surface)] transition-colors duration-300">
-      {/* App Branding & Theme toggle */}
-      <div className="p-5 border-b border-[var(--color-outline-variant)] flex items-center justify-between">
+    <div className="w-full sm:w-80 md:w-80 h-full flex flex-col border-r border-[var(--color-outline-variant)] bg-[var(--color-surface)] text-[var(--color-on-surface)] transition-colors duration-300">
+      {/* App Branding & Theme toggle & Close button */}
+      <div className="p-4 sm:p-5 border-b border-[var(--color-outline-variant)] flex items-center justify-between">
         <div className="flex items-center space-x-2.5">
           <div className="p-1.5 rounded-lg bg-[#fa5d19]/10 text-[#fa5d19]">
             <Flame size={20} />
           </div>
           <div>
             <h1 className="text-base font-bold tracking-tight text-[var(--color-on-surface)] leading-none">Cloud PDF</h1>
-            <span className="text-[10px] font-mono text-zinc-400">Context Workspace</span>
+            <span className="text-[10px] font-mono text-zinc-400">Library & Files</span>
           </div>
         </div>
 
-        {/* Dark Mode toggle */}
-        <button
-          onClick={onToggleDarkMode}
-          className="btn-secondary !h-8 !w-8 !p-0"
-          title={darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
-        >
-          {darkMode ? <Sun size={15} /> : <Moon size={15} />}
-        </button>
+        <div className="flex items-center gap-1.5">
+          {/* Dark Mode toggle */}
+          <button
+            onClick={onToggleDarkMode}
+            className="btn-secondary !h-8 !w-8 !p-0"
+            title={darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+          >
+            {darkMode ? <Sun size={15} /> : <Moon size={15} />}
+          </button>
+
+          {/* Close drawer button on mobile */}
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="btn-secondary !h-8 !w-8 !p-0 md:hidden text-zinc-400 hover:text-[var(--color-on-surface)]"
+              title="Close library"
+            >
+              <X size={16} />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Upload Box Dropzone */}

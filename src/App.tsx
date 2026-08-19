@@ -77,8 +77,9 @@ export default function App() {
   const [syncData, setSyncData] = useState<SyncData>({ books: {} });
   const [isSaving, setIsSaving] = useState<boolean>(false);
 
-  const [sidebarOpen, setSidebarOpen] = useState<boolean>(true);
-  const [annotationsOpen, setAnnotationsOpen] = useState<boolean>(true);
+  // ── Responsive initial sidebars ──
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(() => typeof window !== 'undefined' ? window.innerWidth >= 1024 : false);
+  const [annotationsOpen, setAnnotationsOpen] = useState<boolean>(() => typeof window !== 'undefined' ? window.innerWidth >= 1280 : false);
   const [darkMode, setDarkMode] = useState<boolean>(false);
 
   const [loadingLibrary, setLoadingLibrary] = useState<boolean>(false);
@@ -99,6 +100,17 @@ export default function App() {
       }
     );
     return () => unsub();
+  }, []);
+
+  // ── Window resize responsive handler ───────────────────────────────────────
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth < 768) {
+        // On mobile screens, don't keep both open by default
+      }
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
   }, []);
 
   // ── Dark mode class ───────────────────────────────────────────────────────
@@ -178,6 +190,10 @@ export default function App() {
 
   // ── Book actions ──────────────────────────────────────────────────────────
   const handleSelectBook = async (bookId: string) => {
+    // On small screens, close sidebar on selection for immediate full reading view
+    if (window.innerWidth < 1024) {
+      setSidebarOpen(false);
+    }
     if (bookId === activeBookId) return;
     const token = getAccessToken();
     if (!token) return;
@@ -226,6 +242,9 @@ export default function App() {
     setBooks(loadedBooks);
     setActiveBookId(newFileId);
     setActiveBookPage(1);
+    if (window.innerWidth < 1024) {
+      setSidebarOpen(false);
+    }
     await selectAndLoadBookBytes(token, newFileId);
   };
 
@@ -348,6 +367,9 @@ export default function App() {
 
   // ── Page change ───────────────────────────────────────────────────────────
   const handleChangePage = async (pageNumber: number) => {
+    if (window.innerWidth < 1024) {
+      setAnnotationsOpen(false);
+    }
     if (!activeBookId) return;
     setActiveBookPage(pageNumber);
     await updateBookStats(activeBookId, (p) => ({
@@ -418,7 +440,7 @@ export default function App() {
   // ── Loading screen ────────────────────────────────────────────────────────
   if (loadingInit) {
     return (
-      <div className="h-screen w-screen flex flex-col items-center justify-center gap-4 bg-[var(--color-background)] text-[var(--color-on-background)]">
+      <div className="min-h-screen w-screen flex flex-col items-center justify-center gap-4 bg-[var(--color-background)] text-[var(--color-on-background)]">
         <div className="flex items-center gap-3 mb-2 animate-pulse">
           <div className="p-2.5 rounded-xl bg-[#fa5d19]/10 text-[#fa5d19]">
             <Flame size={28} />
@@ -434,34 +456,34 @@ export default function App() {
   // ── Sign-in screen ────────────────────────────────────────────────────────
   if (needsAuth) {
     return (
-      <div className="h-screen w-screen flex flex-col items-center justify-center transition-colors duration-300 bg-[var(--color-background)] text-[var(--color-on-background)] relative overflow-hidden">
+      <div className="min-h-screen w-screen flex flex-col items-center justify-center p-4 sm:p-6 transition-colors duration-300 bg-[var(--color-background)] text-[var(--color-on-background)] relative overflow-hidden">
         {/* Subtle heat ambient glow in corner */}
-        <div className="absolute -top-40 -right-40 w-96 h-96 bg-[#fa5d19]/10 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute -bottom-40 -left-40 w-96 h-96 bg-[#9061ff]/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -top-40 -right-40 w-72 sm:w-96 h-72 sm:h-96 bg-[#fa5d19]/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-40 -left-40 w-72 sm:w-96 h-72 sm:h-96 bg-[#9061ff]/10 rounded-full blur-3xl pointer-events-none" />
 
-        <div className="absolute top-8 right-8">
+        <div className="absolute top-4 right-4 sm:top-8 sm:right-8">
           <button
             onClick={() => setDarkMode(!darkMode)}
             className="btn-secondary text-xs"
           >
-            {darkMode ? '☀️ Light Mode' : '🌙 Dark Mode'}
+            {darkMode ? '☀️ Light' : '🌙 Dark'}
           </button>
         </div>
 
-        <div className="w-full max-w-md p-8 rounded-2xl border text-center card-surface backdrop-blur-sm z-10">
+        <div className="w-full max-w-md p-6 sm:p-8 rounded-2xl border text-center card-surface backdrop-blur-sm z-10">
           <div className="inline-flex p-3 rounded-2xl bg-[#fa5d19]/10 text-[#fa5d19] mb-4 shadow-sm">
             <Flame size={36} />
           </div>
-          <h2 className="text-2xl font-bold tracking-tight mb-2">Cloud PDF Sync Reader</h2>
-          <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-6">
+          <h2 className="text-xl sm:text-2xl font-bold tracking-tight mb-2">Cloud PDF Sync Reader</h2>
+          <p className="text-xs sm:text-sm text-zinc-500 dark:text-zinc-400 mb-6">
             Read, annotate, and sync highlights and drawings across all devices with Google Drive.
           </p>
 
-          <div className="text-left space-y-3 mb-8 px-2">
+          <div className="text-left space-y-3 mb-8 px-1 sm:px-2">
             {[
               ['Google Drive Integration', 'Stores books and annotations directly on your private Drive.'],
               ['Rich Heat-Driven Annotation', 'Freehand ink, precision shapes, highlighters, sticky notes & text.'],
-              ['Eye-Safe Reading', 'Clean technical interface with instant dark mode inversion.'],
+              ['Mobile & Tablet Ready', 'Optimized for touchscreens, continuous scrolling & dark mode.'],
             ].map(([title, desc]) => (
               <div key={title} className="flex items-start gap-3 text-xs leading-relaxed">
                 <span className="p-1 rounded-md bg-[#fa5d19]/10 text-[#fa5d19] font-bold">✓</span>
@@ -503,10 +525,23 @@ export default function App() {
 
   // ── Main app ──────────────────────────────────────────────────────────────
   return (
-    <div className="h-screen w-screen flex overflow-hidden transition-colors duration-300 bg-[var(--color-background)] text-[var(--color-on-background)]">
+    <div className="h-screen w-screen flex overflow-hidden transition-colors duration-300 bg-[var(--color-background)] text-[var(--color-on-background)] relative">
 
-      {/* Document sidebar */}
+      {/* ── Document sidebar: Slide-over drawer on mobile/tablet, docked on desktop ── */}
+      {/* Mobile / Tablet Backdrop Overlay */}
       {sidebarOpen && (
+        <div
+          onClick={() => setSidebarOpen(false)}
+          className="fixed inset-0 bg-black/40 backdrop-blur-xs z-40 md:hidden"
+        />
+      )}
+
+      {/* Sidebar container */}
+      <div
+        className={`fixed inset-y-0 left-0 z-50 md:static md:z-auto transition-transform duration-300 ease-in-out md:translate-x-0 ${
+          sidebarOpen ? 'translate-x-0' : '-translate-x-full md:hidden'
+        }`}
+      >
         <DocumentSidebar
           books={books}
           activeBookId={activeBookId}
@@ -517,48 +552,57 @@ export default function App() {
           onLogout={handleLogout}
           darkMode={darkMode}
           onToggleDarkMode={() => setDarkMode(!darkMode)}
+          onClose={() => setSidebarOpen(false)}
         />
-      )}
+      </div>
 
-      {/* Main reading area */}
+      {/* ── Main reading area ── */}
       <div className="flex-1 h-full flex flex-col min-w-0 overflow-hidden relative">
 
-        {/* Top bar */}
-        <div className="h-14 px-6 flex items-center justify-between border-b border-[var(--color-outline-variant)] bg-[var(--color-surface)]/80 backdrop-blur-sm shrink-0">
-          <div className="flex items-center gap-4">
+        {/* Top Navigation Bar */}
+        <div className="h-12 sm:h-14 px-3 sm:px-6 flex items-center justify-between border-b border-[var(--color-outline-variant)] bg-[var(--color-surface)]/90 backdrop-blur-sm shrink-0 z-20">
+          <div className="flex items-center gap-2 sm:gap-4 min-w-0">
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="btn-secondary !h-8 !px-2.5 !py-1"
+              className={`btn-secondary !h-8 !px-2.5 !py-1 ${
+                sidebarOpen ? '!bg-[#fa5d19]/10 !text-[#fa5d19] !border-[#fa5d19]/30' : ''
+              }`}
               title="Toggle library sidebar"
             >
               <Menu size={16} />
+              <span className="hidden sm:inline text-xs">Library</span>
             </button>
 
-            <div className="flex items-center gap-1.5">
+            {/* Document Title Pill */}
+            {activeBookId && (
+              <span className="text-[11px] sm:text-xs font-medium max-w-[120px] sm:max-w-[200px] md:max-w-xs truncate bg-[var(--color-surface-container-high)] text-[var(--color-on-surface)] px-2.5 py-1 rounded-full border border-[var(--color-outline-variant)]">
+                📄 {books.find((b) => b.id === activeBookId)?.name || 'PDF'}
+              </span>
+            )}
+
+            <div className="hidden sm:flex items-center gap-1.5">
               {isSaving ? (
                 <div className="flex items-center gap-1.5 text-zinc-500">
-                  <RefreshCw size={13} className="animate-spin text-[#fa5d19]" />
-                  <span className="text-[11px] font-mono">Backing up…</span>
+                  <RefreshCw size={12} className="animate-spin text-[#fa5d19]" />
+                  <span className="text-[10px] font-mono">Syncing…</span>
                 </div>
               ) : (
-                <div className="flex items-center gap-1.5 text-zinc-500">
-                  <CheckCircle size={13} className="text-emerald-500" />
-                  <span className="text-[11px] font-mono">Synced</span>
+                <div className="flex items-center gap-1 text-zinc-500">
+                  <CheckCircle size={12} className="text-emerald-500" />
+                  <span className="text-[10px] font-mono">Synced</span>
                 </div>
               )}
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            {activeBookId && (
-              <span className="text-[12px] font-medium max-w-[180px] sm:max-w-xs truncate bg-[var(--color-surface-container-high)] text-[var(--color-on-surface)] px-3 py-1.5 rounded-full border border-[var(--color-outline-variant)]">
-                📄 {books.find((b) => b.id === activeBookId)?.name || 'PDF'}
-              </span>
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            {isSaving && (
+              <RefreshCw size={13} className="animate-spin text-[#fa5d19] sm:hidden" />
             )}
 
             <button
               onClick={() => setAnnotationsOpen(!annotationsOpen)}
-              className={`btn-secondary !h-8 !px-3 !py-1 text-xs ${
+              className={`btn-secondary !h-8 !px-2.5 sm:!px-3 !py-1 text-xs ${
                 annotationsOpen
                   ? '!bg-[#fa5d19]/10 !text-[#fa5d19] !border-[#fa5d19]/30 font-semibold'
                   : ''
@@ -575,23 +619,23 @@ export default function App() {
                 className="btn-secondary !h-8 !w-8 !p-0 text-zinc-400 hover:text-red-500"
                 title="Disconnect Google Sync / Logout"
               >
-                <LogOut size={15} />
+                <LogOut size={14} />
               </button>
             )}
           </div>
         </div>
 
-        {/* Content */}
+        {/* Content Viewport */}
         <div className="flex-1 min-h-0 relative bg-[var(--color-surface-container-lowest)]">
           {actionError && (
-            <div className="absolute top-4 left-4 right-4 z-50 p-4 rounded-xl border border-red-500/20 bg-red-500/10 text-xs text-red-500 flex items-center justify-between shadow-lg">
-              <div className="flex items-center gap-2">
-                <ShieldAlert size={15} />
-                <p className="font-medium">{actionError}</p>
+            <div className="absolute top-3 left-3 right-3 sm:top-4 sm:left-4 sm:right-4 z-50 p-3 sm:p-4 rounded-xl border border-red-500/20 bg-red-500/10 text-xs text-red-500 flex items-center justify-between shadow-lg">
+              <div className="flex items-center gap-2 min-w-0">
+                <ShieldAlert size={15} className="shrink-0" />
+                <p className="font-medium truncate">{actionError}</p>
               </div>
               <button
                 onClick={() => loadFullLibraryData(getAccessToken()!)}
-                className="px-2.5 py-1 text-[11px] font-semibold bg-red-500 text-white rounded-lg shadow-xs hover:bg-red-600 transition-colors"
+                className="px-2.5 py-1 text-[11px] font-semibold bg-red-500 text-white rounded-lg shadow-xs hover:bg-red-600 transition-colors shrink-0 ml-2"
               >
                 Retry
               </button>
@@ -600,13 +644,13 @@ export default function App() {
 
           {loadingBookData && (
             <div className="absolute inset-0 z-40 flex flex-col items-center justify-center gap-3 bg-[var(--color-surface)]/60 backdrop-blur-sm">
-              <div className="animate-spin rounded-full h-11 w-11 border-2 border-[#fa5d19] border-t-transparent" />
+              <div className="animate-spin rounded-full h-10 w-10 border-2 border-[#fa5d19] border-t-transparent" />
               <p className="text-xs font-mono font-medium text-zinc-500 animate-pulse">Downloading document…</p>
             </div>
           )}
 
           {activeBookBytes ? (
-            <div className="w-full h-full p-3 md:p-5 overflow-hidden">
+            <div className="w-full h-full p-1.5 sm:p-3 md:p-4 lg:p-5 overflow-hidden">
               <PDFReader
                 pdfData={activeBookBytes}
                 currentPage={activeBookPage}
@@ -631,16 +675,22 @@ export default function App() {
               />
             </div>
           ) : (
-            <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center max-w-md mx-auto">
+            <div className="w-full h-full flex flex-col items-center justify-center p-6 sm:p-8 text-center max-w-md mx-auto">
               <div className="p-4 rounded-2xl bg-[#fa5d19]/10 text-[#fa5d19] mb-4 shadow-sm">
-                <BookOpen size={40} />
+                <BookOpen size={36} />
               </div>
               <h3 className="text-base font-semibold mb-1.5 text-[var(--color-on-surface)]">Welcome to Cloud PDF</h3>
               <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed mb-4">
-                Your bookshelf is empty! Upload a PDF via the sidebar to start reading and annotating.
+                Your bookshelf is empty! Tap <strong>Library</strong> to upload a PDF or select an existing document.
               </p>
-              <div className="p-3 bg-[#fa5d19]/5 rounded-xl border border-[#fa5d19]/15 text-[12px] text-zinc-600 dark:text-zinc-400 leading-relaxed">
-                <Sparkles size={14} className="text-[#fa5d19] inline mr-1" />
+              <button
+                onClick={() => setSidebarOpen(true)}
+                className="btn-primary text-xs mb-4"
+              >
+                Open Library
+              </button>
+              <div className="p-3 bg-[#fa5d19]/5 rounded-xl border border-[#fa5d19]/15 text-[11px] text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                <Sparkles size={13} className="text-[#fa5d19] inline mr-1" />
                 All annotations — ink, shapes, highlights, and notes — sync seamlessly with your Google Drive.
               </div>
             </div>
@@ -648,22 +698,38 @@ export default function App() {
         </div>
       </div>
 
-      {/* Annotation panel */}
+      {/* ── Annotation panel: Slide-over drawer on mobile/tablet, docked on desktop ── */}
+      {/* Mobile Backdrop Overlay for Annotations */}
       {annotationsOpen && activeBookId && (
-        <AnnotationPanel
-          highlights={currentHighlights}
-          notes={currentNotes}
-          inkStrokes={currentInkStrokes}
-          shapes={currentShapes}
-          textBoxes={currentTextBoxes}
-          onPageSelect={handleChangePage}
-          onDeleteHighlight={handleDeleteHighlight}
-          onDeleteNote={handleDeleteNote}
-          onDeleteInkStroke={handleDeleteInkStroke}
-          onDeleteShape={handleDeleteShape}
-          onDeleteTextBox={handleDeleteTextBox}
-          darkMode={darkMode}
+        <div
+          onClick={() => setAnnotationsOpen(false)}
+          className="fixed inset-0 bg-black/40 backdrop-blur-xs z-40 md:hidden"
         />
+      )}
+
+      {/* Annotation panel container */}
+      {activeBookId && (
+        <div
+          className={`fixed inset-y-0 right-0 z-50 md:static md:z-auto transition-transform duration-300 ease-in-out ${
+            annotationsOpen ? 'translate-x-0' : 'translate-x-full md:hidden'
+          }`}
+        >
+          <AnnotationPanel
+            highlights={currentHighlights}
+            notes={currentNotes}
+            inkStrokes={currentInkStrokes}
+            shapes={currentShapes}
+            textBoxes={currentTextBoxes}
+            onPageSelect={handleChangePage}
+            onDeleteHighlight={handleDeleteHighlight}
+            onDeleteNote={handleDeleteNote}
+            onDeleteInkStroke={handleDeleteInkStroke}
+            onDeleteShape={handleDeleteShape}
+            onDeleteTextBox={handleDeleteTextBox}
+            darkMode={darkMode}
+            onClose={() => setAnnotationsOpen(false)}
+          />
+        </div>
       )}
     </div>
   );

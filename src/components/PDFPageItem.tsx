@@ -201,10 +201,16 @@ export default function PDFPageItem({
   const pageShapes = shapes.filter((s) => s.page === pageNum);
   const pageTextBoxes = textBoxes.filter((t) => t.page === pageNum);
 
-  const getRelPos = (e: React.MouseEvent<HTMLElement>) => {
+  const getRelPos = (e: React.MouseEvent<HTMLElement> | React.TouchEvent<HTMLElement>) => {
     if (!overlayRef.current) return { x: 0, y: 0 };
     const rect = overlayRef.current.getBoundingClientRect();
-    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    if ('touches' in e && e.touches.length > 0) {
+      return { x: e.touches[0].clientX - rect.left, y: e.touches[0].clientY - rect.top };
+    } else if ('changedTouches' in e && e.changedTouches.length > 0) {
+      return { x: e.changedTouches[0].clientX - rect.left, y: e.changedTouches[0].clientY - rect.top };
+    }
+    const me = e as React.MouseEvent<HTMLElement>;
+    return { x: me.clientX - rect.left, y: me.clientY - rect.top };
   };
 
   const drawOnInkCanvas = (
@@ -242,14 +248,14 @@ export default function PDFPageItem({
   };
 
   // Highlights
-  const onHlDown = (e: React.MouseEvent<HTMLDivElement>) => {
+  const onHlDown = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>) => {
     const { x, y } = getRelPos(e);
     setInkDrawing(true);
     inkPointsRef.current = [{ x, y }];
     drawOnInkCanvas(x, y, true, hlWidth, annotColor, 0.35);
   };
 
-  const onHlMove = (e: React.MouseEvent<HTMLDivElement>) => {
+  const onHlMove = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>) => {
     if (!inkDrawing) return;
     const { x, y } = getRelPos(e);
     inkPointsRef.current.push({ x, y });
@@ -270,22 +276,22 @@ export default function PDFPageItem({
         })),
         color: annotColor,
         width: hlWidth,
-        opacity: 0.38,
+        opacity: 0.35,
         isHighlight: true,
       });
     }
     inkPointsRef.current = [];
   };
 
-  // Pen Ink
-  const onInkDown = (e: React.MouseEvent<HTMLDivElement>) => {
+  // Ink
+  const onInkDown = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>) => {
     const { x, y } = getRelPos(e);
     setInkDrawing(true);
     inkPointsRef.current = [{ x, y }];
     drawOnInkCanvas(x, y, true, inkWidth, annotColor, 1.0);
   };
 
-  const onInkMove = (e: React.MouseEvent<HTMLDivElement>) => {
+  const onInkMove = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>) => {
     if (!inkDrawing) return;
     const { x, y } = getRelPos(e);
     inkPointsRef.current.push({ x, y });
@@ -314,14 +320,14 @@ export default function PDFPageItem({
   };
 
   // Eraser
-  const onEraserDown = (e: React.MouseEvent<HTMLDivElement>) => {
+  const onEraserDown = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>) => {
     const { x, y } = getRelPos(e);
     setEraserActive(true);
     setEraserPos({ x, y });
     eraserPathRef.current = [{ x, y }];
   };
 
-  const onEraserMove = (e: React.MouseEvent<HTMLDivElement>) => {
+  const onEraserMove = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>) => {
     const { x, y } = getRelPos(e);
     setEraserPos({ x, y });
     if (!eraserActive) return;
@@ -363,14 +369,14 @@ export default function PDFPageItem({
   };
 
   // Shapes
-  const onShapeDown = (e: React.MouseEvent<HTMLDivElement>) => {
+  const onShapeDown = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>) => {
     const { x, y } = getRelPos(e);
     setIsDrawing(true);
     setDragStart({ x, y });
     setDragRect({ x, y, w: 0, h: 0 });
   };
 
-  const onShapeMove = (e: React.MouseEvent<HTMLDivElement>) => {
+  const onShapeMove = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>) => {
     if (!isDrawing || !dragStart) return;
     const { x, y } = getRelPos(e);
     setDragRect({
@@ -422,16 +428,68 @@ export default function PDFPageItem({
     else if (toolMode === 'shape') onShapeUp();
   };
 
-  const handleOverlayClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (toolMode === 'note' && !isDrawing) {
+  // Touch handlers for mobile & tablet
+  const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (toolMode === 'view') return;
+    e.preventDefault();
+    if (toolMode === 'highlight') onHlDown(e);
+    else if (toolMode === 'ink') onInkDown(e);
+    else if (toolMode === 'eraser') onEraserDown(e);
+    else if (toolMode === 'shape') onShapeDown(e);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (toolMode === 'view') return;
+    e.preventDefault();
+    if (toolMode === 'highlight') onHlMove(e);
+    else if (toolMode === 'ink') onInkMove(e);
+    else if (toolMode === 'eraser') onEraserMove(e);
+    else if (toolMode === 'shape') onShapeMove(e);
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (toolMode === 'view') return;
+    e.preventDefault();
+    if (toolMode === 'highlight') onHlUp();
+    else if (toolMode === 'ink') onInkUp();
+    else if (toolMode === 'eraser') onEraserUp();
+    else if (toolMode === 'shape') onShapeUp();
+    else if (toolMode === 'note') {
       const { x, y } = getRelPos(e);
       const rect = overlayRef.current!.getBoundingClientRect();
-      setNotePopup({ x: (x / rect.width) * 100, y: (y / rect.height) * 100 });
+      setNotePopup({
+        x: Math.min(80, Math.max(5, (x / rect.width) * 100)),
+        y: Math.min(80, Math.max(5, (y / rect.height) * 100)),
+      });
       setNoteText('');
     } else if (toolMode === 'textbox') {
       const { x, y } = getRelPos(e);
       const rect = overlayRef.current!.getBoundingClientRect();
-      setActiveTextBox({ x: (x / rect.width) * 100, y: (y / rect.height) * 100, text: '' });
+      setActiveTextBox({
+        x: Math.min(80, Math.max(5, (x / rect.width) * 100)),
+        y: Math.min(80, Math.max(5, (y / rect.height) * 100)),
+        text: '',
+      });
+    }
+  };
+
+  const handleOverlayClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (toolMode === 'note' && !isDrawing) {
+      const { x, y } = getRelPos(e);
+      const rect = overlayRef.current!.getBoundingClientRect();
+      setNotePopup({
+        x: Math.min(80, Math.max(5, (x / rect.width) * 100)),
+        y: Math.min(80, Math.max(5, (y / rect.height) * 100)),
+      });
+      setNoteText('');
+    } else if (toolMode === 'textbox') {
+      const { x, y } = getRelPos(e);
+      const rect = overlayRef.current!.getBoundingClientRect();
+      setActiveTextBox({
+        x: Math.min(80, Math.max(5, (x / rect.width) * 100)),
+        y: Math.min(80, Math.max(5, (y / rect.height) * 100)),
+        text: '',
+      });
     } else {
       onSelectShapeId(null);
     }
@@ -680,8 +738,11 @@ export default function PDFPageItem({
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onMouseLeave={toolMode === 'eraser' ? onEraserLeave : undefined}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
           onClick={handleOverlayClick}
-          className="absolute inset-0 z-30"
+          className={`absolute inset-0 z-30 ${toolMode !== 'view' ? 'touch-drawing-surface' : ''}`}
           style={cursorStyle}
         >
           {/* Eraser cursor ring */}
