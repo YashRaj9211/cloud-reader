@@ -569,40 +569,42 @@ export default function PDFReader({
           {!loading && pdf && (
             <div className="w-full flex flex-col items-center min-h-full">
               {isContinuous ? (
-                // ── Continuous Scroll: Render all pages with lazy loading ──
-                Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => (
-                  <PDFPageItem
-                    key={pageNum}
-                    pdf={pdf}
-                    pageNum={pageNum}
-                    zoom={zoom}
-                    containerWidth={containerWidth}
-                    darkMode={darkMode}
-                    toolMode={toolMode}
-                    activeShape={activeShape}
-                    annotColor={annotColor}
-                    inkWidth={inkWidth}
-                    hlWidth={hlWidth}
-                    highlights={highlights}
-                    notes={notes}
-                    inkStrokes={inkStrokes}
-                    shapes={shapes}
-                    textBoxes={textBoxes}
-                    onAddHighlight={onAddHighlight}
-                    onDeleteHighlight={onDeleteHighlight}
-                    onAddNote={onAddNote}
-                    onDeleteNote={onDeleteNote}
-                    onAddInkStroke={onAddInkStroke}
-                    onDeleteInkStroke={onDeleteInkStroke}
-                    onAddShape={onAddShape}
-                    onDeleteShape={onDeleteShape}
-                    onAddTextBox={onAddTextBox}
-                    onDeleteTextBox={onDeleteTextBox}
-                    selectedShapeId={selectedShapeId}
-                    onSelectShapeId={setSelectedShapeId}
-                    onSelectNote={setSelectedNote}
-                  />
-                ))
+                // ── Continuous Scroll: Virtualized Windowing (±6 pages around current) to support 1000+ page PDFs seamlessly ──
+                Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .filter((pageNum) => Math.abs(pageNum - currentPage) <= 8)
+                  .map((pageNum) => (
+                    <PDFPageItem
+                      key={pageNum}
+                      pdf={pdf}
+                      pageNum={pageNum}
+                      zoom={zoom}
+                      containerWidth={containerWidth}
+                      darkMode={darkMode}
+                      toolMode={toolMode}
+                      activeShape={activeShape}
+                      annotColor={annotColor}
+                      inkWidth={inkWidth}
+                      hlWidth={hlWidth}
+                      highlights={highlights}
+                      notes={notes}
+                      inkStrokes={inkStrokes}
+                      shapes={shapes}
+                      textBoxes={textBoxes}
+                      onAddHighlight={onAddHighlight}
+                      onDeleteHighlight={onDeleteHighlight}
+                      onAddNote={onAddNote}
+                      onDeleteNote={onDeleteNote}
+                      onAddInkStroke={onAddInkStroke}
+                      onDeleteInkStroke={onDeleteInkStroke}
+                      onAddShape={onAddShape}
+                      onDeleteShape={onDeleteShape}
+                      onAddTextBox={onAddTextBox}
+                      onDeleteTextBox={onDeleteTextBox}
+                      selectedShapeId={selectedShapeId}
+                      onSelectShapeId={setSelectedShapeId}
+                      onSelectNote={setSelectedNote}
+                    />
+                  ))
               ) : (
                 // ── Single Page Mode ──
                 <PDFPageItem

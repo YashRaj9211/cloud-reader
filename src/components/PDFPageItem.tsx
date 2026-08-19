@@ -192,6 +192,14 @@ export default function PDFPageItem({
     return () => {
       isCancelled = true;
       if (renderTask) renderTask.cancel();
+      if (canvasRef.current) {
+        canvasRef.current.width = 0;
+        canvasRef.current.height = 0;
+      }
+      if (inkCanvasRef.current) {
+        inkCanvasRef.current.width = 0;
+        inkCanvasRef.current.height = 0;
+      }
     };
   }, [pdf, pageNum, zoom, containerWidth, isVisible]);
 
