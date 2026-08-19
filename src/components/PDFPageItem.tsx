@@ -133,7 +133,8 @@ export default function PDFPageItem({
       if (!isMounted) return;
       const unscaled = page.getViewport({ scale: 1.0 });
       const effectiveWidth = containerWidth > 0 ? containerWidth : 800;
-      const widthScale = (effectiveWidth - 48) / unscaled.width;
+      const marginOffset = typeof window !== 'undefined' && window.innerWidth < 768 ? 16 : 48;
+      const widthScale = Math.max(0.1, (effectiveWidth - marginOffset) / unscaled.width);
       const scale = widthScale * zoom;
       const vp = page.getViewport({ scale });
       setPageSize({ w: Math.floor(vp.width), h: Math.floor(vp.height) });
@@ -153,34 +154,39 @@ export default function PDFPageItem({
     pdf.getPage(pageNum).then((page: any) => {
       if (isCancelled) return;
 
+      const dpr = typeof window !== 'undefined' ? Math.min(Math.max(window.devicePixelRatio || 1, 1.5), 2.5) : 1;
       const unscaled = page.getViewport({ scale: 1.0 });
       const effectiveWidth = containerWidth > 0 ? containerWidth : 800;
-      const widthScale = (effectiveWidth - 48) / unscaled.width;
-      const scale = widthScale * zoom;
-      const vp = page.getViewport({ scale });
+      const marginOffset = typeof window !== 'undefined' && window.innerWidth < 768 ? 16 : 48;
+      const widthScale = Math.max(0.1, (effectiveWidth - marginOffset) / unscaled.width);
+      const displayScale = widthScale * zoom;
+      
+      const cssVp = page.getViewport({ scale: displayScale });
+      const renderVp = page.getViewport({ scale: displayScale * dpr });
 
       const canvas = canvasRef.current;
       if (!canvas || isCancelled) return;
 
-      const targetW = Math.floor(vp.width);
-      const targetH = Math.floor(vp.height);
+      const cssW = Math.floor(cssVp.width);
+      const cssH = Math.floor(cssVp.height);
 
-      canvas.width = targetW;
-      canvas.height = targetH;
+      // Hi-DPI backing store dimensions
+      canvas.width = Math.floor(renderVp.width);
+      canvas.height = Math.floor(renderVp.height);
 
       if (inkCanvasRef.current) {
-        inkCanvasRef.current.width = targetW;
-        inkCanvasRef.current.height = targetH;
+        inkCanvasRef.current.width = cssW;
+        inkCanvasRef.current.height = cssH;
       }
 
       const ctx = canvas.getContext('2d');
       if (!ctx || isCancelled) return;
 
-      renderTask = page.render({ canvasContext: ctx, viewport: vp });
+      renderTask = page.render({ canvasContext: ctx, viewport: renderVp });
       renderTask.promise.then(() => {
         if (!isCancelled) {
           setRendered(true);
-          setPageSize({ w: targetW, h: targetH });
+          setPageSize({ w: cssW, h: cssH });
         }
       }).catch((err: any) => {
         if (err && err.name !== 'RenderingCancelledException') {
