@@ -42,7 +42,20 @@ async def get_current_user_and_token(
             name=session_data.get("name"),
             picture=session_data.get("picture")
         )
-        return user, session_data["access_token"]
+        access_token = session_data["access_token"]
+        refresh_token = session_data.get("refresh_token")
+
+        try:
+            valid_access_token, _ = await google_auth_service.validate_or_refresh_token(
+                access_token=access_token,
+                refresh_token=refresh_token
+            )
+            return user, valid_access_token
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Google OAuth session expired. Please log in again."
+            )
 
     # Second attempt: Raw Google OAuth Access Token
     try:
@@ -53,3 +66,4 @@ async def get_current_user_and_token(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired authentication session."
         )
+

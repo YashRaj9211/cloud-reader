@@ -1,5 +1,5 @@
 import urllib.parse
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 import httpx
 import jwt
 from datetime import datetime, timedelta, timezone
@@ -66,6 +66,46 @@ class GoogleAuthService:
             )
 
     @staticmethod
+    async def refresh_access_token(refresh_token: str) -> Dict[str, Any]:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                "https://oauth2.googleapis.com/token",
+                data={
+                    "client_id": GOOGLE_CLIENT_ID,
+                    "client_secret": GOOGLE_CLIENT_SECRET,
+                    "refresh_token": refresh_token,
+                    "grant_type": "refresh_token",
+                },
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+            if resp.status_code != 200:
+                raise Exception(f"Failed to refresh Google access token: {resp.text}")
+            return resp.json()
+
+    @staticmethod
+    async def validate_or_refresh_token(access_token: str, refresh_token: Optional[str] = None) -> Tuple[str, Optional[Dict[str, Any]]]:
+        """
+        Validates the access token with Google tokeninfo.
+        If expired/invalid and a refresh token is present, refreshes the access token.
+        Returns (valid_access_token, token_refresh_response_dict_or_None).
+        """
+        async with httpx.AsyncClient() as client:
+            tokeninfo_resp = await client.get(
+                f"https://www.googleapis.com/oauth2/v3/tokeninfo?access_token={access_token}"
+            )
+            if tokeninfo_resp.status_code == 200:
+                return access_token, None
+
+        # If tokeninfo failed and we have a refresh token, refresh it
+        if refresh_token:
+            new_tokens = await GoogleAuthService.refresh_access_token(refresh_token)
+            new_access_token = new_tokens.get("access_token")
+            if new_access_token:
+                return new_access_token, new_tokens
+
+        raise Exception("Access token is invalid or expired, and cannot be refreshed.")
+
+    @staticmethod
     def create_session_token(user: User, access_token: str, refresh_token: Optional[str] = None) -> str:
         now = datetime.now(timezone.utc)
         payload = {
@@ -89,3 +129,4 @@ class GoogleAuthService:
 
 
 google_auth_service = GoogleAuthService()
+
