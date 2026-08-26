@@ -9,9 +9,10 @@ import {
 } from '../types';
 import { Trash2, X, MessageSquare } from 'lucide-react';
 
-export type ToolMode = 'view' | 'highlight' | 'note' | 'ink' | 'eraser' | 'shape' | 'textbox';
+export type ToolMode = 'view' | 'highlight' | 'note' |  'ink' | 'eraser' | 'shape' | 'textbox';
 
 interface PDFPageItemProps {
+  key?: React.Key;
   pdf: any;
   pageNum: number;
   zoom: number;

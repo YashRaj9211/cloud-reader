@@ -1,20 +1,15 @@
 import { useEffect, useState } from 'react';
 import {
-  initAuth,
-  googleSignIn,
-  logout,
-  getAccessToken
-} from './lib/auth';
-import {
-  findSyncFile,
-  downloadSyncData,
-  createSyncFile,
-  updateSyncFile,
-  listPdfsInDrive,
-  downloadPdfBytes,
-  uploadFileToDrive,
-  deleteFileFromDrive
-} from './lib/drive';
+  checkAuthSession,
+  getGoogleAuthUrl,
+  logoutUser,
+  fetchLibrary,
+  fetchBookBytes,
+  uploadBookFile,
+  deleteBookFile,
+  updateBookProgress,
+  setStoredSessionToken,
+} from './lib/api';
 import {
   Book,
   SyncData,
@@ -24,6 +19,7 @@ import {
   InkStroke,
   ShapeAnnotation,
   TextBox,
+  User,
 } from './types';
 import DocumentSidebar from './components/DocumentSidebar';
 import PDFReader from './components/PDFReader';
@@ -64,7 +60,7 @@ function uid(prefix: string) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function App() {
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [needsAuth, setNeedsAuth] = useState<boolean>(false);
   const [loadingInit, setLoadingInit] = useState<boolean>(true);
 
@@ -78,8 +74,12 @@ export default function App() {
   const [isSaving, setIsSaving] = useState<boolean>(false);
 
   // ── Responsive initial sidebars ──
-  const [sidebarOpen, setSidebarOpen] = useState<boolean>(() => typeof window !== 'undefined' ? window.innerWidth >= 1024 : false);
-  const [annotationsOpen, setAnnotationsOpen] = useState<boolean>(() => typeof window !== 'undefined' ? window.innerWidth >= 1280 : false);
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(() =>
+    typeof window !== 'undefined' ? window.innerWidth >= 1024 : false
+  );
+  const [annotationsOpen, setAnnotationsOpen] = useState<boolean>(() =>
+    typeof window !== 'undefined' ? window.innerWidth >= 1280 : false
+  );
   const [darkMode, setDarkMode] = useState<boolean>(false);
 
   const [loadingLibrary, setLoadingLibrary] = useState<boolean>(false);
@@ -88,25 +88,47 @@ export default function App() {
 
   // ── Auth init ─────────────────────────────────────────────────────────────
   useEffect(() => {
-    const unsub = initAuth(
-      (currentUser, token) => {
-        setUser(currentUser);
-        setNeedsAuth(false);
-        loadFullLibraryData(token);
-      },
-      () => {
+    const init = async () => {
+      // Check query params for OAuth redirect feedback
+      const urlParams = new URLSearchParams(window.location.search);
+      const tokenParam = urlParams.get('token');
+      const authSuccess = urlParams.get('auth_success');
+      const authError = urlParams.get('auth_error');
+
+      if (tokenParam) {
+        setStoredSessionToken(tokenParam);
+      }
+      if (tokenParam || authSuccess || authError) {
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+      if (authError) {
+        setActionError(`Sign-in failed: ${authError}`);
+      }
+
+      try {
+        const authStatus = await checkAuthSession();
+        if (authStatus.authenticated && authStatus.user) {
+          setUser(authStatus.user);
+          setNeedsAuth(false);
+          await loadFullLibraryData();
+        } else {
+          setNeedsAuth(true);
+          setLoadingInit(false);
+        }
+      } catch (err: any) {
+        console.error('Auth initialization check failed:', err);
         setNeedsAuth(true);
         setLoadingInit(false);
       }
-    );
-    return () => unsub();
+    };
+    init();
   }, []);
 
   // ── Window resize responsive handler ───────────────────────────────────────
   useEffect(() => {
     const handleResize = () => {
       if (window.innerWidth < 768) {
-        // On mobile screens, don't keep both open by default
+        // Mobile screen adjustments if needed
       }
     };
     window.addEventListener('resize', handleResize);
@@ -120,51 +142,30 @@ export default function App() {
   }, [darkMode]);
 
   // ── Library load ──────────────────────────────────────────────────────────
-  const loadFullLibraryData = async (token: string) => {
+  const loadFullLibraryData = async () => {
     setLoadingLibrary(true);
     setActionError(null);
     try {
-      let syncId = await findSyncFile(token);
-      let currentSyncData: SyncData = { books: {} };
-
-      if (syncId) {
-        setSyncFileId(syncId);
-        currentSyncData = await downloadSyncData(token, syncId);
-      } else {
-        const newId = await createSyncFile(token, { books: {} });
-        setSyncFileId(newId);
-        syncId = newId;
+      const data = await fetchLibrary();
+      setBooks(data.books || []);
+      setSyncData(data.syncData || { books: {} });
+      if (data.syncFileId) {
+        setSyncFileId(data.syncFileId);
       }
-      setSyncData(currentSyncData);
 
-      const pdfFiles = await listPdfsInDrive(token);
-      const loadedBooks: Book[] = pdfFiles.map((pf: any) => {
-        const stats = currentSyncData.books[pf.id] || emptyProgress();
-        return {
-          id: pf.id,
-          name: pf.name,
-          size: pf.size ? parseInt(pf.size) : undefined,
-          createdTime: pf.createdTime,
-          currentPage: stats.currentPage,
-          totalPages: stats.totalPages,
-          lastReadTime: stats.lastReadTime,
-        };
-      });
-      setBooks(loadedBooks);
-
-      if (loadedBooks.length > 0) {
-        const sorted = [...loadedBooks].sort((a, b) => {
+      if (data.books && data.books.length > 0) {
+        const sorted = [...data.books].sort((a, b) => {
           const tA = a.lastReadTime ? new Date(a.lastReadTime).getTime() : 0;
           const tB = b.lastReadTime ? new Date(b.lastReadTime).getTime() : 0;
           return tB - tA;
         });
         const target = sorted[0];
         setActiveBookId(target.id);
-        setActiveBookPage(target.currentPage);
-        await selectAndLoadBookBytes(token, target.id);
+        setActiveBookPage(target.currentPage || 1);
+        await selectAndLoadBookBytes(target.id, data.syncData);
       }
     } catch (err: any) {
-      console.error(err);
+      console.error('Library loading error:', err);
       setActionError(err.message || 'Error loading Google Drive components.');
     } finally {
       setLoadingLibrary(false);
@@ -172,16 +173,17 @@ export default function App() {
     }
   };
 
-  const selectAndLoadBookBytes = async (token: string, bookId: string) => {
+  const selectAndLoadBookBytes = async (bookId: string, customSyncData?: SyncData) => {
     setLoadingBookData(true);
     setActionError(null);
     try {
-      const bytes = await downloadPdfBytes(token, bookId);
+      const bytes = await fetchBookBytes(bookId);
       setActiveBookBytes(bytes);
-      const cached = syncData.books[bookId];
+      const activeSync = customSyncData || syncData;
+      const cached = activeSync.books[bookId];
       setActiveBookPage(cached?.currentPage || 1);
     } catch (err: any) {
-      console.error(err);
+      console.error('Error fetching book bytes:', err);
       setActionError('Could not download file. Click retry to refresh.');
     } finally {
       setLoadingBookData(false);
@@ -190,77 +192,45 @@ export default function App() {
 
   // ── Book actions ──────────────────────────────────────────────────────────
   const handleSelectBook = async (bookId: string) => {
-    // On small screens, close sidebar on selection for immediate full reading view
     if (window.innerWidth < 1024) {
       setSidebarOpen(false);
     }
     if (bookId === activeBookId) return;
-    const token = getAccessToken();
-    if (!token) return;
     setActiveBookId(bookId);
     setActiveBookBytes(null);
-    await selectAndLoadBookBytes(token, bookId);
-  };
-
-  const saveUpdatedSyncData = async (updated: SyncData) => {
-    const token = getAccessToken();
-    if (!token || !syncFileId) return;
-    setIsSaving(true);
-    try {
-      await updateSyncFile(token, syncFileId, updated);
-    } catch (err) {
-      console.error('Sync failed:', err);
-    } finally {
-      setIsSaving(false);
-    }
+    await selectAndLoadBookBytes(bookId);
   };
 
   const handleUploadBook = async (file: File) => {
-    const token = getAccessToken();
-    if (!token) throw new Error('Authorization required.');
-    const newFileId = await uploadFileToDrive(token, file);
+    const newBook = await uploadBookFile(file);
     const initialStats = emptyProgress();
     const nextSyncData: SyncData = {
       ...syncData,
-      books: { ...syncData.books, [newFileId]: initialStats },
+      books: { ...syncData.books, [newBook.id]: initialStats },
     };
     setSyncData(nextSyncData);
-    await saveUpdatedSyncData(nextSyncData);
-    const pdfFiles = await listPdfsInDrive(token);
-    const loadedBooks: Book[] = pdfFiles.map((pf: any) => {
-      const stats = nextSyncData.books[pf.id] || emptyProgress();
-      return {
-        id: pf.id,
-        name: pf.name,
-        size: pf.size ? parseInt(pf.size) : undefined,
-        createdTime: pf.createdTime,
-        currentPage: stats.currentPage,
-        totalPages: stats.totalPages,
-        lastReadTime: stats.lastReadTime,
-      };
-    });
-    setBooks(loadedBooks);
-    setActiveBookId(newFileId);
+    setBooks((prev) => [newBook, ...prev]);
+    setActiveBookId(newBook.id);
     setActiveBookPage(1);
     if (window.innerWidth < 1024) {
       setSidebarOpen(false);
     }
-    await selectAndLoadBookBytes(token, newFileId);
+    await selectAndLoadBookBytes(newBook.id, nextSyncData);
   };
 
   const handleDeleteBook = async (bookId: string) => {
     const title = books.find((b) => b.id === bookId)?.name || 'this book';
     if (!window.confirm(`Permanently delete "${title}" from Google Drive?`)) return;
-    const token = getAccessToken();
-    if (!token) return;
     setLoadingLibrary(true);
     try {
-      await deleteFileFromDrive(token, bookId);
+      await deleteBookFile(bookId);
       const nextSync = { ...syncData };
       delete nextSync.books[bookId];
       setSyncData(nextSync);
-      await saveUpdatedSyncData(nextSync);
-      if (activeBookId === bookId) { setActiveBookId(null); setActiveBookBytes(null); }
+      if (activeBookId === bookId) {
+        setActiveBookId(null);
+        setActiveBookBytes(null);
+      }
       setBooks((prev) => prev.filter((b) => b.id !== bookId));
     } catch (err: any) {
       setActionError('Error deleting document: ' + err.message);
@@ -281,31 +251,53 @@ export default function App() {
       books: { ...syncData.books, [bookId]: next },
     };
     setSyncData(updated);
-    await saveUpdatedSyncData(updated);
+
+    setIsSaving(true);
+    try {
+      await updateBookProgress(bookId, next);
+    } catch (err) {
+      console.error('Sync failed:', err);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   // ── Highlight handlers ────────────────────────────────────────────────────
   const handleAddHighlight = async (hData: Omit<Highlight, 'id' | 'createdAt'>) => {
     if (!activeBookId) return;
     const newH: Highlight = { ...hData, id: uid('hl'), createdAt: new Date().toISOString() };
-    await updateBookStats(activeBookId, (p) => ({ ...p, highlights: [...p.highlights, newH], lastReadTime: new Date().toISOString() }));
+    await updateBookStats(activeBookId, (p) => ({
+      ...p,
+      highlights: [...p.highlights, newH],
+      lastReadTime: new Date().toISOString(),
+    }));
   };
 
   const handleDeleteHighlight = async (id: string) => {
     if (!activeBookId) return;
-    await updateBookStats(activeBookId, (p) => ({ ...p, highlights: p.highlights.filter((h) => h.id !== id) }));
+    await updateBookStats(activeBookId, (p) => ({
+      ...p,
+      highlights: p.highlights.filter((h) => h.id !== id),
+    }));
   };
 
   // ── Note handlers ─────────────────────────────────────────────────────────
   const handleAddNote = async (nData: Omit<StickyNote, 'id' | 'createdAt'>) => {
     if (!activeBookId) return;
     const newN: StickyNote = { ...nData, id: uid('note'), createdAt: new Date().toISOString() };
-    await updateBookStats(activeBookId, (p) => ({ ...p, notes: [...p.notes, newN], lastReadTime: new Date().toISOString() }));
+    await updateBookStats(activeBookId, (p) => ({
+      ...p,
+      notes: [...p.notes, newN],
+      lastReadTime: new Date().toISOString(),
+    }));
   };
 
   const handleDeleteNote = async (id: string) => {
     if (!activeBookId) return;
-    await updateBookStats(activeBookId, (p) => ({ ...p, notes: p.notes.filter((n) => n.id !== id) }));
+    await updateBookStats(activeBookId, (p) => ({
+      ...p,
+      notes: p.notes.filter((n) => n.id !== id),
+    }));
   };
 
   // ── Ink stroke handlers ───────────────────────────────────────────────────
@@ -405,14 +397,10 @@ export default function App() {
     setLoadingInit(true);
     setActionError(null);
     try {
-      const result = await googleSignIn();
-      if (result) {
-        setUser(result.user);
-        setNeedsAuth(false);
-        await loadFullLibraryData(result.accessToken);
-      }
+      const authUrl = await getGoogleAuthUrl();
+      window.location.href = authUrl;
     } catch (err: any) {
-      const msg = err.message || err.code || String(err);
+      const msg = err.message || String(err);
       setActionError(`Sign-in failed: ${msg}`);
       setLoadingInit(false);
     }
@@ -420,7 +408,7 @@ export default function App() {
 
   const handleLogout = async () => {
     if (!window.confirm('Disconnect your Google session?')) return;
-    await logout();
+    await logoutUser();
     setUser(null);
     setNeedsAuth(true);
     setBooks([]);
@@ -634,7 +622,7 @@ export default function App() {
                 <p className="font-medium truncate">{actionError}</p>
               </div>
               <button
-                onClick={() => loadFullLibraryData(getAccessToken()!)}
+                onClick={() => loadFullLibraryData()}
                 className="px-2.5 py-1 text-[11px] font-semibold bg-red-500 text-white rounded-lg shadow-xs hover:bg-red-600 transition-colors shrink-0 ml-2"
               >
                 Retry
