@@ -26,6 +26,7 @@ export default function ThumbnailSidebar({
   const observerRef = useRef<IntersectionObserver | null>(null);
   const thumbRefs = useRef<(HTMLDivElement | null)[]>([]);
   const renderQueue = useRef<Set<number>>(new Set());
+  const containerRef = useRef<HTMLDivElement | null>(null);
 
   // Initialise blank thumbnail slots when pdf loads
   useEffect(() => {
@@ -114,13 +115,29 @@ export default function ThumbnailSidebar({
   // Auto-scroll active thumbnail into view
   const activeRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
-    if (activeRef.current) {
-      activeRef.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    if (activeRef.current && containerRef.current) {
+      const container = containerRef.current;
+      const target = activeRef.current;
+      
+      const containerRect = container.getBoundingClientRect();
+      const targetRect = target.getBoundingClientRect();
+      
+      // Only scroll if it's outside the visible bounds
+      if (targetRect.top < containerRect.top || targetRect.bottom > containerRect.bottom) {
+        const offset = targetRect.top - containerRect.top;
+        container.scrollTo({
+          top: container.scrollTop + offset - 20,
+          behavior: 'smooth'
+        });
+      }
     }
   }, [currentPage]);
 
   return (
-    <div className="w-24 flex-shrink-0 flex flex-col border-r border-[var(--color-outline-variant)] bg-[var(--color-surface)] overflow-y-auto transition-colors duration-300 custom-scrollbar">
+    <div 
+      ref={containerRef}
+      className="w-24 flex-shrink-0 flex flex-col border-r border-[var(--color-outline-variant)] bg-[var(--color-surface)] overflow-y-auto transition-colors duration-300 custom-scrollbar"
+    >
       <div className="px-2 py-2 text-[9px] font-semibold uppercase tracking-widest text-center border-b border-[var(--color-outline-variant)] text-zinc-400">
         Pages
       </div>

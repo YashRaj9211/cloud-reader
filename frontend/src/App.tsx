@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import {
   checkAuthSession,
   getGoogleAuthUrl,
@@ -190,12 +190,52 @@ export default function App() {
     }
   };
 
+  // ── Sync refs & background syncer ─────────────────────────────────────────
+  const syncDataRef = useRef<SyncData>(syncData);
+  syncDataRef.current = syncData;
+
+  const syncTimersRef = useRef<Record<string, NodeJS.Timeout>>({});
+
+  const syncBookToBackend = useCallback(async (bookId: string) => {
+    const dataToSync = syncDataRef.current.books[bookId];
+    if (!dataToSync) return;
+    setIsSaving(true);
+    try {
+      await updateBookProgress(bookId, dataToSync);
+    } catch (err) {
+      console.error('Background sync failed:', err);
+    } finally {
+      setIsSaving(false);
+    }
+  }, []);
+
+  // Flush pending background syncs on unmount
+  useEffect(() => {
+    return () => {
+      Object.entries(syncTimersRef.current).forEach(([bookId, timer]) => {
+        clearTimeout(timer);
+        const dataToSync = syncDataRef.current.books[bookId];
+        if (dataToSync) {
+          updateBookProgress(bookId, dataToSync).catch(console.error);
+        }
+      });
+    };
+  }, []);
+
   // ── Book actions ──────────────────────────────────────────────────────────
   const handleSelectBook = async (bookId: string) => {
     if (window.innerWidth < 1024) {
       setSidebarOpen(false);
     }
     if (bookId === activeBookId) return;
+
+    // Flush any pending sync for the currently active book before switching
+    if (activeBookId && syncTimersRef.current[activeBookId]) {
+      clearTimeout(syncTimersRef.current[activeBookId]);
+      delete syncTimersRef.current[activeBookId];
+      syncBookToBackend(activeBookId);
+    }
+
     setActiveBookId(bookId);
     setActiveBookBytes(null);
     await selectAndLoadBookBytes(bookId);
@@ -205,9 +245,10 @@ export default function App() {
     const newBook = await uploadBookFile(file);
     const initialStats = emptyProgress();
     const nextSyncData: SyncData = {
-      ...syncData,
-      books: { ...syncData.books, [newBook.id]: initialStats },
+      ...syncDataRef.current,
+      books: { ...syncDataRef.current.books, [newBook.id]: initialStats },
     };
+    syncDataRef.current = nextSyncData;
     setSyncData(nextSyncData);
     setBooks((prev) => [newBook, ...prev]);
     setActiveBookId(newBook.id);
@@ -223,9 +264,14 @@ export default function App() {
     if (!window.confirm(`Permanently delete "${title}" from Google Drive?`)) return;
     setLoadingLibrary(true);
     try {
+      if (syncTimersRef.current[bookId]) {
+        clearTimeout(syncTimersRef.current[bookId]);
+        delete syncTimersRef.current[bookId];
+      }
       await deleteBookFile(bookId);
-      const nextSync = { ...syncData };
+      const nextSync = { ...syncDataRef.current };
       delete nextSync.books[bookId];
+      syncDataRef.current = nextSync;
       setSyncData(nextSync);
       if (activeBookId === bookId) {
         setActiveBookId(null);
@@ -239,156 +285,182 @@ export default function App() {
     }
   };
 
-  // ── Generic annotation updater ────────────────────────────────────────────
-  const updateBookStats = async (
+  // ── Generic annotation & stats updater with instant UI + debounced sync ──
+  const updateBookStats = (
     bookId: string,
-    updater: (prev: BookProgress) => BookProgress
+    updater: (prev: BookProgress) => BookProgress,
+    debounceMs: number = 600
   ) => {
-    const current = syncData.books[bookId] || emptyProgress(activeBookPage);
+    const current = syncDataRef.current.books[bookId] || emptyProgress(activeBookPage);
     const next = updater({ ...current });
     const updated: SyncData = {
-      ...syncData,
-      books: { ...syncData.books, [bookId]: next },
+      ...syncDataRef.current,
+      books: { ...syncDataRef.current.books, [bookId]: next },
     };
+    syncDataRef.current = updated;
     setSyncData(updated);
 
-    setIsSaving(true);
-    try {
-      await updateBookProgress(bookId, next);
-    } catch (err) {
-      console.error('Sync failed:', err);
-    } finally {
-      setIsSaving(false);
+    // Synchronously update books list so progress bar / percentages never lag or jump out of order
+    if (next.currentPage !== undefined || next.totalPages !== undefined) {
+      setBooks((prev) =>
+        prev.map((b) =>
+          b.id === bookId
+            ? {
+                ...b,
+                currentPage: next.currentPage ?? b.currentPage,
+                totalPages: next.totalPages ?? b.totalPages,
+                lastReadTime: next.lastReadTime ?? b.lastReadTime,
+              }
+            : b
+        )
+      );
+    }
+
+    // Schedule or reset debounced background sync
+    if (syncTimersRef.current[bookId]) {
+      clearTimeout(syncTimersRef.current[bookId]);
+    }
+
+    if (debounceMs <= 0) {
+      syncBookToBackend(bookId);
+    } else {
+      syncTimersRef.current[bookId] = setTimeout(() => {
+        syncBookToBackend(bookId);
+        delete syncTimersRef.current[bookId];
+      }, debounceMs);
     }
   };
 
   // ── Highlight handlers ────────────────────────────────────────────────────
-  const handleAddHighlight = async (hData: Omit<Highlight, 'id' | 'createdAt'>) => {
+  const handleAddHighlight = (hData: Omit<Highlight, 'id' | 'createdAt'>) => {
     if (!activeBookId) return;
     const newH: Highlight = { ...hData, id: uid('hl'), createdAt: new Date().toISOString() };
-    await updateBookStats(activeBookId, (p) => ({
+    updateBookStats(activeBookId, (p) => ({
       ...p,
       highlights: [...p.highlights, newH],
       lastReadTime: new Date().toISOString(),
-    }));
+    }), 400);
   };
 
-  const handleDeleteHighlight = async (id: string) => {
+  const handleDeleteHighlight = (id: string) => {
     if (!activeBookId) return;
-    await updateBookStats(activeBookId, (p) => ({
+    updateBookStats(activeBookId, (p) => ({
       ...p,
       highlights: p.highlights.filter((h) => h.id !== id),
-    }));
+    }), 400);
   };
 
   // ── Note handlers ─────────────────────────────────────────────────────────
-  const handleAddNote = async (nData: Omit<StickyNote, 'id' | 'createdAt'>) => {
+  const handleAddNote = (nData: Omit<StickyNote, 'id' | 'createdAt'>) => {
     if (!activeBookId) return;
     const newN: StickyNote = { ...nData, id: uid('note'), createdAt: new Date().toISOString() };
-    await updateBookStats(activeBookId, (p) => ({
+    updateBookStats(activeBookId, (p) => ({
       ...p,
       notes: [...p.notes, newN],
       lastReadTime: new Date().toISOString(),
-    }));
+    }), 400);
   };
 
-  const handleDeleteNote = async (id: string) => {
+  const handleDeleteNote = (id: string) => {
     if (!activeBookId) return;
-    await updateBookStats(activeBookId, (p) => ({
+    updateBookStats(activeBookId, (p) => ({
       ...p,
       notes: p.notes.filter((n) => n.id !== id),
-    }));
+    }), 400);
   };
 
   // ── Ink stroke handlers ───────────────────────────────────────────────────
-  const handleAddInkStroke = async (sData: Omit<InkStroke, 'id' | 'createdAt'>) => {
+  const handleAddInkStroke = (sData: Omit<InkStroke, 'id' | 'createdAt'>) => {
     if (!activeBookId) return;
     const newS: InkStroke = { ...sData, id: uid('ink'), createdAt: new Date().toISOString() };
-    await updateBookStats(activeBookId, (p) => ({
+    updateBookStats(activeBookId, (p) => ({
       ...p,
       inkStrokes: [...(p.inkStrokes || []), newS],
       lastReadTime: new Date().toISOString(),
-    }));
+    }), 400);
   };
 
-  const handleDeleteInkStroke = async (id: string) => {
+  const handleDeleteInkStroke = (id: string) => {
     if (!activeBookId) return;
-    await updateBookStats(activeBookId, (p) => ({
+    updateBookStats(activeBookId, (p) => ({
       ...p,
       inkStrokes: (p.inkStrokes || []).filter((s) => s.id !== id),
-    }));
+    }), 400);
   };
 
   // ── Shape handlers ────────────────────────────────────────────────────────
-  const handleAddShape = async (sData: Omit<ShapeAnnotation, 'id' | 'createdAt'>) => {
+  const handleAddShape = (sData: Omit<ShapeAnnotation, 'id' | 'createdAt'>) => {
     if (!activeBookId) return;
     const newS: ShapeAnnotation = { ...sData, id: uid('shape'), createdAt: new Date().toISOString() };
-    await updateBookStats(activeBookId, (p) => ({
+    updateBookStats(activeBookId, (p) => ({
       ...p,
       shapes: [...(p.shapes || []), newS],
       lastReadTime: new Date().toISOString(),
-    }));
+    }), 400);
   };
 
-  const handleDeleteShape = async (id: string) => {
+  const handleDeleteShape = (id: string) => {
     if (!activeBookId) return;
-    await updateBookStats(activeBookId, (p) => ({
+    updateBookStats(activeBookId, (p) => ({
       ...p,
       shapes: (p.shapes || []).filter((s) => s.id !== id),
-    }));
+    }), 400);
   };
 
   // ── Text box handlers ─────────────────────────────────────────────────────
-  const handleAddTextBox = async (tData: Omit<TextBox, 'id' | 'createdAt'>) => {
+  const handleAddTextBox = (tData: Omit<TextBox, 'id' | 'createdAt'>) => {
     if (!activeBookId) return;
     const newT: TextBox = { ...tData, id: uid('tb'), createdAt: new Date().toISOString() };
-    await updateBookStats(activeBookId, (p) => ({
+    updateBookStats(activeBookId, (p) => ({
       ...p,
       textBoxes: [...(p.textBoxes || []), newT],
       lastReadTime: new Date().toISOString(),
-    }));
+    }), 400);
   };
 
-  const handleDeleteTextBox = async (id: string) => {
+  const handleDeleteTextBox = (id: string) => {
     if (!activeBookId) return;
-    await updateBookStats(activeBookId, (p) => ({
+    updateBookStats(activeBookId, (p) => ({
       ...p,
       textBoxes: (p.textBoxes || []).filter((t) => t.id !== id),
-    }));
+    }), 400);
   };
 
-  // ── Page change ───────────────────────────────────────────────────────────
-  const handleChangePage = async (pageNumber: number) => {
+  // ── Page change (instant UI + 1s debounce to prevent API flooding) ────────
+  const handleChangePage = (pageNumber: number) => {
     if (window.innerWidth < 1024) {
       setAnnotationsOpen(false);
     }
     if (!activeBookId) return;
     setActiveBookPage(pageNumber);
-    await updateBookStats(activeBookId, (p) => ({
-      ...p,
-      currentPage: pageNumber,
-      lastReadTime: new Date().toISOString(),
-    }));
-    setBooks((prev) =>
-      prev.map((b) =>
-        b.id === activeBookId ? { ...b, currentPage: pageNumber } : b
-      )
+    updateBookStats(
+      activeBookId,
+      (p) => ({
+        ...p,
+        currentPage: pageNumber,
+        lastReadTime: new Date().toISOString(),
+      }),
+      1000 // 1 second debounce while scrolling
     );
   };
 
-  const handleDocumentLoad = async (totalPages: number) => {
+  const handleDocumentLoad = (totalPages: number) => {
     if (!activeBookId) return;
     setBooks((prev) =>
       prev.map((b) =>
         b.id === activeBookId ? { ...b, totalPages } : b
       )
     );
-    const current = syncData.books[activeBookId];
+    const current = syncDataRef.current.books[activeBookId];
     if (!current || current.totalPages !== totalPages) {
-      await updateBookStats(activeBookId, (p) => ({
-        ...p,
-        totalPages,
-      }));
+      updateBookStats(
+        activeBookId,
+        (p) => ({
+          ...p,
+          totalPages,
+        }),
+        1000
+      );
     }
   };
 

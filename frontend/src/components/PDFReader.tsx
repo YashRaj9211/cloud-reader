@@ -187,12 +187,21 @@ export default function PDFReader({
   };
 
   // ─── Continuous Scroll: Scroll spy to update currentPage ──────────────────
+  const isUserScrolling = useRef(false);
+  const userScrollTimeout = useRef<NodeJS.Timeout | null>(null);
+
   useEffect(() => {
     if (!isContinuous || !containerRef.current) return;
 
     const container = containerRef.current;
     const handleScroll = () => {
       if (isScrollingProgrammatically.current) return;
+
+      isUserScrolling.current = true;
+      if (userScrollTimeout.current) clearTimeout(userScrollTimeout.current);
+      userScrollTimeout.current = setTimeout(() => {
+        isUserScrolling.current = false;
+      }, 300);
 
       const pageElements = container.querySelectorAll<HTMLElement>('.pdf-page-container');
       if (!pageElements.length) return;
@@ -236,7 +245,17 @@ export default function PDFReader({
       isScrollingProgrammatically.current = true;
       if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
 
-      targetEl.scrollIntoView({ behavior, block: 'start' });
+      // Avoid scrollIntoView which aggressively scrolls all overflow-hidden ancestors
+      const containerTop = containerRef.current.scrollTop;
+      const containerRect = containerRef.current.getBoundingClientRect();
+      const targetRect = targetEl.getBoundingClientRect();
+      
+      const targetScrollTop = containerTop + (targetRect.top - containerRect.top);
+
+      containerRef.current.scrollTo({
+        top: targetScrollTop - 16, // small padding
+        behavior
+      });
 
       scrollTimeoutRef.current = setTimeout(() => {
         isScrollingProgrammatically.current = false;
@@ -571,7 +590,6 @@ export default function PDFReader({
               {isContinuous ? (
                 // ── Continuous Scroll: Virtualized Windowing (±6 pages around current) to support 1000+ page PDFs seamlessly ──
                 Array.from({ length: totalPages }, (_, i) => i + 1)
-                  .filter((pageNum) => Math.abs(pageNum - currentPage) <= 8)
                   .map((pageNum) => (
                     <PDFPageItem
                       key={pageNum}
