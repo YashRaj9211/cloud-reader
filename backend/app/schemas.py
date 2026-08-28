@@ -116,3 +116,61 @@ class LibraryResponse(BaseModel):
     books: List[Book] = Field(default_factory=list)
     syncData: SyncData = Field(default_factory=SyncData)
     syncFileId: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# RAG Schemas
+# ---------------------------------------------------------------------------
+
+class ProcessBookResponse(BaseModel):
+    book_id: str
+    task_id: str
+    message: str
+
+
+class RagStatusResponse(BaseModel):
+    book_id: str
+    status: str                      # pending | processing | completed | failed
+    total_chunks: Optional[int] = None
+    error_message: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class ChatRequest(BaseModel):
+    query: str
+    stream: bool = False             # set True to get SSE streaming response
+
+
+class ChatSourceChunk(BaseModel):
+    page: int
+    chunk_index: int
+    text_preview: str
+
+
+class ChatResponse(BaseModel):
+    answer: str
+    sources: List[ChatSourceChunk] = Field(default_factory=list)
+
+
+class GenerateNotesRequest(BaseModel):
+    scope: Literal["chapter", "full"] = "chapter"
+    book_title: Optional[str] = None
+
+
+class GenerateNotesResponse(BaseModel):
+    book_id: str
+    scope: str
+    orchestrator_task_id: str
+    message: str
+
+
+class NoteResponse(BaseModel):
+    id: str
+    book_id: str
+    scope: str                       # chapter | full
+    chapter_title: Optional[str] = None
+    chapter_index: Optional[int] = None
+    content: Optional[str] = None   # Markdown (None while generating)
+    status: str                      # pending | generating | completed | failed
+    error_message: Optional[str] = None
+    updated_at: Optional[str] = None

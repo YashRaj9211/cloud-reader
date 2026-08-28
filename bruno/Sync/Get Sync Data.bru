@@ -1,0 +1,15 @@
+meta {
+  name: Get Sync Data
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/sync
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}

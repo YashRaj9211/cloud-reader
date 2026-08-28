@@ -9,3 +9,24 @@ itsdangerous>=2.2.0
 pdf-inspector>=0.2.6
 pypdfium2>=4.30.0
 onnxruntime>=1.19.0
+
+# --- RAG Stack ---
+# Task Queue
+celery[redis]>=5.4.0
+redis>=5.0.0
+
+# Vector DB
+chromadb>=0.5.0
+
+# Text chunking
+langchain-text-splitters>=0.3.0
+
+# Database (NeonDB / PostgreSQL)
+asyncpg>=0.29.0
+sqlalchemy[asyncio]>=2.0.0
+
+# LLM / NVIDIA cloud
+openai>=1.50.0
+
+# Utilities
+tenacity>=8.5.0

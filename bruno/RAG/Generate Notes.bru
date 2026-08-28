@@ -1,0 +1,22 @@
+meta {
+  name: Generate Notes
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/api/rag/{{bookId}}/notes/generate
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "book_title": "My Book",
+    "scope": "chapter"
+  }
+}

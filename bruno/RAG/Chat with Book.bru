@@ -1,0 +1,22 @@
+meta {
+  name: Chat with Book
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/rag/{{bookId}}/chat
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "query": "What are the main concepts covered in this book?",
+    "stream": false
+  }
+}

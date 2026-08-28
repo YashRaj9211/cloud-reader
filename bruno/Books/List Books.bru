@@ -1,0 +1,21 @@
+meta {
+  name: List Books
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/books
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+script:post-response {
+  if (res.body && res.body.books && res.body.books.length > 0) {
+    bru.setEnvVar("bookId", res.body.books[0].id);
+  }
+}

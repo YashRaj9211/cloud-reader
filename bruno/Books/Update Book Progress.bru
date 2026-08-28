@@ -1,0 +1,28 @@
+meta {
+  name: Update Book Progress
+  type: http
+  seq: 4
+}
+
+patch {
+  url: {{baseUrl}}/api/books/{{bookId}}/progress
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "currentPage": 1,
+    "totalPages": 10,
+    "lastReadTime": "2026-08-28T21:00:00Z",
+    "highlights": [],
+    "notes": [],
+    "inkStrokes": [],
+    "shapes": [],
+    "textBoxes": []
+  }
+}

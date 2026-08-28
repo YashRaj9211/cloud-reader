@@ -1,0 +1,25 @@
+meta {
+  name: Upload Book
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/books/upload
+  body: multipartForm
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:multipart-form {
+  file: @file()
+}
+
+script:post-response {
+  if (res.body && res.body.id) {
+    bru.setEnvVar("bookId", res.body.id);
+  }
+}
