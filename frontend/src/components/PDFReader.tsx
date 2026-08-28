@@ -32,7 +32,7 @@ import {
   TextBox,
 } from '../types';
 import ThumbnailSidebar from './ThumbnailSidebar';
-import PDFPageItem, { ToolMode } from './PDFPageItem';
+import PDFPageItem, { ToolMode, AnnotationData, AnnotationHandlers } from './PDFPageItem';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.min.mjs',
@@ -41,25 +41,10 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface PDFReaderProps {
+interface PDFReaderProps extends AnnotationData, AnnotationHandlers {
   pdfData: ArrayBuffer;
   currentPage: number;
   onChangePage: (page: number) => void;
-  highlights: Highlight[];
-  notes: StickyNote[];
-  inkStrokes: InkStroke[];
-  shapes: ShapeAnnotation[];
-  textBoxes: TextBox[];
-  onAddHighlight: (h: Omit<Highlight, 'id' | 'createdAt'>) => void;
-  onDeleteHighlight: (id: string) => void;
-  onAddNote: (n: Omit<StickyNote, 'id' | 'createdAt'>) => void;
-  onDeleteNote: (id: string) => void;
-  onAddInkStroke: (s: Omit<InkStroke, 'id' | 'createdAt'>) => void;
-  onDeleteInkStroke: (id: string) => void;
-  onAddShape: (s: Omit<ShapeAnnotation, 'id' | 'createdAt'>) => void;
-  onDeleteShape: (id: string) => void;
-  onAddTextBox: (t: Omit<TextBox, 'id' | 'createdAt'>) => void;
-  onDeleteTextBox: (id: string) => void;
   onDocumentLoad?: (numPages: number) => void;
   darkMode: boolean;
 }
@@ -317,7 +302,7 @@ export default function PDFReader({
         className={`p-2 rounded-lg flex items-center gap-1.5 text-xs font-medium transition-all ${
           active
             ? 'bg-[#fa5d19] text-white shadow-sm'
-            : 'text-zinc-600 dark:text-zinc-400 hover:bg-[var(--color-surface-container-high)]'
+            : 'text-zinc-600 dark:text-zinc-400 hover:bg-(--color-surface-container-high)'
         }`}
       >
         {icon}
@@ -337,35 +322,35 @@ export default function PDFReader({
       className={`p-2 rounded-lg flex items-center gap-1 text-xs transition-all ${
         toolMode === 'shape' && activeShape === kind
           ? 'bg-[#fa5d19] text-white shadow-sm'
-          : 'text-zinc-600 dark:text-zinc-400 hover:bg-[var(--color-surface-container-high)]'
+          : 'text-zinc-600 dark:text-zinc-400 hover:bg-(--color-surface-container-high)'
       }`}
     >
       {icon}
     </button>
   );
 
-  const divider = <div className="h-5 w-px mx-0.5 bg-[var(--color-outline-variant)]" />;
+  const divider = <div className="h-5 w-px mx-0.5 bg-(--color-outline-variant)" />;
 
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <div
       id="pdf-reader-root"
-      className="flex flex-col h-full rounded-2xl border border-[var(--color-outline-variant)] bg-[var(--color-surface)] text-[var(--color-on-surface)] transition-colors duration-300 overflow-hidden shadow-sm"
+      className="flex flex-col h-full rounded-2xl border border-(--color-outline-variant) bg-(--color-surface) text-(--color-on-surface) transition-colors duration-300 overflow-hidden shadow-sm"
     >
       {/* ── Toolbar ── */}
-      <div className="flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 border-b border-[var(--color-outline-variant)] bg-[var(--color-surface)] shrink-0 overflow-x-auto no-scrollbar">
+      <div className="flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 border-b border-(--color-outline-variant) bg-(--color-surface) shrink-0 overflow-x-auto no-scrollbar">
         {/* 1. Page navigation */}
         <div className="flex items-center gap-0.5 sm:gap-1 shrink-0">
           <button
             id="reader-prev-btn"
             onClick={() => handlePageSelectAndScroll(currentPage - 1)}
             disabled={currentPage <= 1 || loading}
-            className="p-1 sm:p-1.5 rounded-lg transition-colors text-zinc-500 hover:bg-[var(--color-surface-container-high)] disabled:opacity-30"
+            className="p-1 sm:p-1.5 rounded-lg transition-colors text-zinc-500 hover:bg-(--color-surface-container-high) disabled:opacity-30"
             title="Previous page"
           >
             <ChevronLeft size={16} />
           </button>
-          <div className="flex items-center gap-0.5 sm:gap-1 text-xs font-mono px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-lg border border-[var(--color-outline-variant)] bg-[var(--color-surface-container-lowest)]">
+          <div className="flex items-center gap-0.5 sm:gap-1 text-xs font-mono px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-lg border border-(--color-outline-variant) bg-(--color-surface-container-lowest)">
             <input
               id="reader-page-jump"
               type="number"
@@ -376,7 +361,7 @@ export default function PDFReader({
                 const v = parseInt(e.target.value, 10);
                 if (v >= 1 && v <= totalPages) handlePageSelectAndScroll(v);
               }}
-              className="w-8 sm:w-10 text-center bg-transparent outline-none font-semibold text-[var(--color-on-surface)]"
+              className="w-8 sm:w-10 text-center bg-transparent outline-none font-semibold text-(--color-on-surface)"
             />
             <span className="text-zinc-400">/{totalPages}</span>
           </div>
@@ -384,7 +369,7 @@ export default function PDFReader({
             id="reader-next-btn"
             onClick={() => handlePageSelectAndScroll(currentPage + 1)}
             disabled={currentPage >= totalPages || loading}
-            className="p-1 sm:p-1.5 rounded-lg transition-colors text-zinc-500 hover:bg-[var(--color-surface-container-high)] disabled:opacity-30"
+            className="p-1 sm:p-1.5 rounded-lg transition-colors text-zinc-500 hover:bg-(--color-surface-container-high) disabled:opacity-30"
             title="Next page"
           >
             <ChevronRight size={16} />
@@ -394,7 +379,7 @@ export default function PDFReader({
         {divider}
 
         {/* 2. Continuous Scroll / Single Page Toggle */}
-        <div className="flex items-center p-0.5 rounded-lg border border-[var(--color-outline-variant)] bg-[var(--color-surface-container-lowest)] shrink-0">
+        <div className="flex items-center p-0.5 rounded-lg border border-(--color-outline-variant) bg-(--color-surface-container-lowest) shrink-0">
           <button
             onClick={() => setIsContinuous(true)}
             title="Continuous Scroll"
@@ -426,14 +411,14 @@ export default function PDFReader({
           <button
             onClick={fitToWidth}
             title="Fit to Width"
-            className="px-2 py-1 rounded-lg text-[11px] sm:text-xs font-semibold transition-all bg-[var(--color-surface-container-high)] hover:bg-[#fa5d19]/15 hover:text-[#fa5d19] text-[var(--color-on-surface)] border border-[var(--color-outline-variant)] shadow-2xs"
+            className="px-2 py-1 rounded-lg text-[11px] sm:text-xs font-semibold transition-all bg-(--color-surface-container-high) hover:bg-[#fa5d19]/15 hover:text-[#fa5d19] text-(--color-on-surface) border border-(--color-outline-variant) shadow-2xs"
           >
             Width
           </button>
           <button
             onClick={fitToPage}
             title="Fit whole page in screen"
-            className="px-2 py-1 rounded-lg text-[11px] sm:text-xs font-semibold transition-all bg-[var(--color-surface-container-high)] hover:bg-[#fa5d19]/15 hover:text-[#fa5d19] text-[var(--color-on-surface)] border border-[var(--color-outline-variant)] shadow-2xs"
+            className="px-2 py-1 rounded-lg text-[11px] sm:text-xs font-semibold transition-all bg-(--color-surface-container-high) hover:bg-[#fa5d19]/15 hover:text-[#fa5d19] text-(--color-on-surface) border border-(--color-outline-variant) shadow-2xs"
           >
             Page
           </button>
@@ -455,7 +440,7 @@ export default function PDFReader({
                   className={`rounded-full border-2 transition-all ${
                     hlWidth === w
                       ? 'border-[#fa5d19] scale-110'
-                      : 'border-[var(--color-outline-variant)] hover:border-zinc-400'
+                      : 'border-(--color-outline-variant) hover:border-zinc-400'
                   }`}
                   style={{ width: Math.max(10, w * 0.6), height: Math.max(10, w * 0.6), backgroundColor: annotColor + '88' }}
                 />
@@ -468,7 +453,7 @@ export default function PDFReader({
             <select
               value={inkWidth}
               onChange={(e) => setInkWidth(Number(e.target.value))}
-              className="text-xs rounded-md px-1 py-0.5 border border-[var(--color-outline-variant)] bg-[var(--color-surface)] text-[var(--color-on-surface)] outline-none"
+              className="text-xs rounded-md px-1 py-0.5 border border-(--color-outline-variant) bg-(--color-surface) text-(--color-on-surface) outline-none"
             >
               {[1, 2, 3, 5, 8].map((w) => <option key={w} value={w}>{w}px</option>)}
             </select>
@@ -504,7 +489,7 @@ export default function PDFReader({
         <div className="flex items-center gap-0.5 shrink-0">
           <button
             onClick={() => setZoom((p) => Math.max(0.4, p - 0.1))}
-            className="p-1 sm:p-1.5 rounded-lg transition-colors text-zinc-500 hover:bg-[var(--color-surface-container-high)]"
+            className="p-1 sm:p-1.5 rounded-lg transition-colors text-zinc-500 hover:bg-(--color-surface-container-high)"
             title="Zoom Out"
           >
             <ZoomOut size={15} />
@@ -512,7 +497,7 @@ export default function PDFReader({
           <span className="text-[11px] sm:text-xs font-mono w-8 sm:w-9 text-center text-zinc-500">{Math.round(zoom * 100)}%</span>
           <button
             onClick={() => setZoom((p) => Math.min(3.0, p + 0.1))}
-            className="p-1 sm:p-1.5 rounded-lg transition-colors text-zinc-500 hover:bg-[var(--color-surface-container-high)]"
+            className="p-1 sm:p-1.5 rounded-lg transition-colors text-zinc-500 hover:bg-(--color-surface-container-high)"
             title="Zoom In"
           >
             <ZoomIn size={15} />
@@ -529,7 +514,7 @@ export default function PDFReader({
             className={`flex items-center gap-1 p-1.5 rounded-lg transition-all text-xs font-medium ${
               thumbnailOpen
                 ? 'bg-[#fa5d19] text-white shadow-sm'
-                : 'text-zinc-600 dark:text-zinc-400 hover:bg-[var(--color-surface-container-high)] border border-[var(--color-outline-variant)]/60'
+                : 'text-zinc-600 dark:text-zinc-400 hover:bg-(--color-surface-container-high) border border-(--color-outline-variant)/60'
             }`}
           >
             <AlignJustify size={15} />
@@ -538,7 +523,7 @@ export default function PDFReader({
           <button
             onClick={toggleFullscreen}
             title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
-            className="p-1.5 rounded-lg transition-colors text-zinc-500 hover:bg-[var(--color-surface-container-high)]"
+            className="p-1.5 rounded-lg transition-colors text-zinc-500 hover:bg-(--color-surface-container-high)"
           >
             {isFullscreen ? <Minimize size={15} /> : <Maximize size={15} />}
           </button>
@@ -576,7 +561,7 @@ export default function PDFReader({
         {/* Main scroll / canvas container */}
         <div
           ref={containerRef}
-          className="flex-1 overflow-auto p-2 sm:p-4 relative select-none bg-[var(--color-surface-container-lowest)] scroll-smooth"
+          className="flex-1 overflow-auto p-2 sm:p-4 relative select-none bg-(--color-surface-container-lowest) scroll-smooth"
         >
           {loading && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-zinc-900/5 backdrop-blur-sm z-50">
@@ -587,76 +572,55 @@ export default function PDFReader({
 
           {!loading && pdf && (
             <div className="w-full flex flex-col items-center min-h-full">
-              {isContinuous ? (
-                // ── Continuous Scroll: Virtualized Windowing (±6 pages around current) to support 1000+ page PDFs seamlessly ──
-                Array.from({ length: totalPages }, (_, i) => i + 1)
-                  .map((pageNum) => (
+              {(() => {
+                const sharedItemProps = {
+                  pdf,
+                  zoom,
+                  containerWidth,
+                  darkMode,
+                  toolMode,
+                  activeShape,
+                  annotColor,
+                  inkWidth,
+                  hlWidth,
+                  highlights,
+                  notes,
+                  inkStrokes,
+                  shapes,
+                  textBoxes,
+                  onAddHighlight,
+                  onDeleteHighlight,
+                  onAddNote,
+                  onDeleteNote,
+                  onAddInkStroke,
+                  onDeleteInkStroke,
+                  onAddShape,
+                  onDeleteShape,
+                  onAddTextBox,
+                  onDeleteTextBox,
+                  selectedShapeId,
+                  onSelectShapeId: setSelectedShapeId,
+                  onSelectNote: setSelectedNote,
+                };
+
+                return isContinuous ? (
+                  // ── Continuous Scroll ──
+                  Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => (
                     <PDFPageItem
                       key={pageNum}
-                      pdf={pdf}
                       pageNum={pageNum}
-                      zoom={zoom}
-                      containerWidth={containerWidth}
-                      darkMode={darkMode}
-                      toolMode={toolMode}
-                      activeShape={activeShape}
-                      annotColor={annotColor}
-                      inkWidth={inkWidth}
-                      hlWidth={hlWidth}
-                      highlights={highlights}
-                      notes={notes}
-                      inkStrokes={inkStrokes}
-                      shapes={shapes}
-                      textBoxes={textBoxes}
-                      onAddHighlight={onAddHighlight}
-                      onDeleteHighlight={onDeleteHighlight}
-                      onAddNote={onAddNote}
-                      onDeleteNote={onDeleteNote}
-                      onAddInkStroke={onAddInkStroke}
-                      onDeleteInkStroke={onDeleteInkStroke}
-                      onAddShape={onAddShape}
-                      onDeleteShape={onDeleteShape}
-                      onAddTextBox={onAddTextBox}
-                      onDeleteTextBox={onDeleteTextBox}
-                      selectedShapeId={selectedShapeId}
-                      onSelectShapeId={setSelectedShapeId}
-                      onSelectNote={setSelectedNote}
+                      {...sharedItemProps}
                     />
                   ))
-              ) : (
-                // ── Single Page Mode ──
-                <PDFPageItem
-                  key={currentPage}
-                  pdf={pdf}
-                  pageNum={currentPage}
-                  zoom={zoom}
-                  containerWidth={containerWidth}
-                  darkMode={darkMode}
-                  toolMode={toolMode}
-                  activeShape={activeShape}
-                  annotColor={annotColor}
-                  inkWidth={inkWidth}
-                  hlWidth={hlWidth}
-                  highlights={highlights}
-                  notes={notes}
-                  inkStrokes={inkStrokes}
-                  shapes={shapes}
-                  textBoxes={textBoxes}
-                  onAddHighlight={onAddHighlight}
-                  onDeleteHighlight={onDeleteHighlight}
-                  onAddNote={onAddNote}
-                  onDeleteNote={onDeleteNote}
-                  onAddInkStroke={onAddInkStroke}
-                  onDeleteInkStroke={onDeleteInkStroke}
-                  onAddShape={onAddShape}
-                  onDeleteShape={onDeleteShape}
-                  onAddTextBox={onAddTextBox}
-                  onDeleteTextBox={onDeleteTextBox}
-                  selectedShapeId={selectedShapeId}
-                  onSelectShapeId={setSelectedShapeId}
-                  onSelectNote={setSelectedNote}
-                />
-              )}
+                ) : (
+                  // ── Single Page Mode ──
+                  <PDFPageItem
+                    key={currentPage}
+                    pageNum={currentPage}
+                    {...sharedItemProps}
+                  />
+                );
+              })()}
             </div>
           )}
         </div>
@@ -664,22 +628,22 @@ export default function PDFReader({
 
       {/* ── Selected note card ───────────────────────────────────────────── */}
       {selectedNote && (
-        <div className="absolute top-20 right-6 z-50 p-4 w-72 rounded-2xl shadow-xl border border-[var(--color-outline-variant)] bg-[var(--color-surface)] text-[var(--color-on-surface)]">
-          <div className="flex items-center justify-between mb-2 pb-2 border-b border-[var(--color-outline-variant)]">
+        <div className="absolute top-20 right-6 z-50 p-4 w-72 rounded-2xl shadow-xl border border-(--color-outline-variant) bg-(--color-surface) text-(--color-on-surface)">
+          <div className="flex items-center justify-between mb-2 pb-2 border-b border-(--color-outline-variant)">
             <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
               Note — Page {selectedNote.page}
             </span>
             <button
               onClick={() => setSelectedNote(null)}
-              className="p-1 text-zinc-400 hover:bg-[var(--color-surface-container-high)] rounded"
+              className="p-1 text-zinc-400 hover:bg-(--color-surface-container-high) rounded"
             >
               <X size={13} />
             </button>
           </div>
-          <p className="text-xs break-words whitespace-pre-wrap select-text leading-relaxed text-[var(--color-on-surface)]">
+          <p className="text-xs wrap-break-word whitespace-pre-wrap select-text leading-relaxed text-(--color-on-surface)">
             {selectedNote.text}
           </p>
-          <div className="flex items-center justify-between mt-4 pt-2 border-t border-[var(--color-outline-variant)]">
+          <div className="flex items-center justify-between mt-4 pt-2 border-t border-(--color-outline-variant)">
             <span className="text-[10px] font-mono text-zinc-400">
               {new Date(selectedNote.createdAt).toLocaleDateString()}
             </span>

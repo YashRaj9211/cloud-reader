@@ -6,3 +6,6 @@ python-multipart>=0.0.12
 python-dotenv>=1.0.1
 pyjwt>=2.9.0
 itsdangerous>=2.2.0
+pdf-inspector>=0.2.6
+pypdfium2>=4.30.0
+onnxruntime>=1.19.0

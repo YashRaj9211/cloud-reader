@@ -11,7 +11,28 @@ import { Trash2, X, MessageSquare } from 'lucide-react';
 
 export type ToolMode = 'view' | 'highlight' | 'note' |  'ink' | 'eraser' | 'shape' | 'textbox';
 
-interface PDFPageItemProps {
+export interface AnnotationData {
+  highlights: Highlight[];
+  notes: StickyNote[];
+  inkStrokes: InkStroke[];
+  shapes: ShapeAnnotation[];
+  textBoxes: TextBox[];
+}
+
+export interface AnnotationHandlers {
+  onAddHighlight: (h: Omit<Highlight, 'id' | 'createdAt'>) => void;
+  onDeleteHighlight: (id: string) => void;
+  onAddNote: (n: Omit<StickyNote, 'id' | 'createdAt'>) => void;
+  onDeleteNote: (id: string) => void;
+  onAddInkStroke: (s: Omit<InkStroke, 'id' | 'createdAt'>) => void;
+  onDeleteInkStroke: (id: string) => void;
+  onAddShape: (s: Omit<ShapeAnnotation, 'id' | 'createdAt'>) => void;
+  onDeleteShape: (id: string) => void;
+  onAddTextBox: (t: Omit<TextBox, 'id' | 'createdAt'>) => void;
+  onDeleteTextBox: (id: string) => void;
+}
+
+interface PDFPageItemProps extends AnnotationData, AnnotationHandlers {
   key?: React.Key;
   pdf: any;
   pageNum: number;
@@ -23,21 +44,6 @@ interface PDFPageItemProps {
   annotColor: string;
   inkWidth: number;
   hlWidth: number;
-  highlights: Highlight[];
-  notes: StickyNote[];
-  inkStrokes: InkStroke[];
-  shapes: ShapeAnnotation[];
-  textBoxes: TextBox[];
-  onAddHighlight: (h: Omit<Highlight, 'id' | 'createdAt'>) => void;
-  onDeleteHighlight: (id: string) => void;
-  onAddNote: (n: Omit<StickyNote, 'id' | 'createdAt'>) => void;
-  onDeleteNote: (id: string) => void;
-  onAddInkStroke: (s: Omit<InkStroke, 'id' | 'createdAt'>) => void;
-  onDeleteInkStroke: (id: string) => void;
-  onAddShape: (s: Omit<ShapeAnnotation, 'id' | 'createdAt'>) => void;
-  onDeleteShape: (id: string) => void;
-  onAddTextBox: (t: Omit<TextBox, 'id' | 'createdAt'>) => void;
-  onDeleteTextBox: (id: string) => void;
   selectedShapeId: string | null;
   onSelectShapeId: (id: string | null) => void;
   onSelectNote: (note: StickyNote | null) => void;
@@ -262,22 +268,26 @@ export default function PDFPageItem({
     ctx.clearRect(0, 0, canvas.width, canvas.height);
   };
 
-  // Highlights
-  const onHlDown = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>) => {
+  // Unified Stroke handlers (Ink & Highlight)
+  const isHighlighter = toolMode === 'highlight';
+  const currentStrokeWidth = isHighlighter ? hlWidth : inkWidth;
+  const currentOpacity = isHighlighter ? 0.35 : 1.0;
+
+  const onStrokeDown = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>) => {
     const { x, y } = getRelPos(e);
     setInkDrawing(true);
     inkPointsRef.current = [{ x, y }];
-    drawOnInkCanvas(x, y, true, hlWidth, annotColor, 0.35);
+    drawOnInkCanvas(x, y, true, currentStrokeWidth, annotColor, currentOpacity);
   };
 
-  const onHlMove = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>) => {
+  const onStrokeMove = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>) => {
     if (!inkDrawing) return;
     const { x, y } = getRelPos(e);
     inkPointsRef.current.push({ x, y });
-    drawOnInkCanvas(x, y, false, hlWidth, annotColor, 0.35);
+    drawOnInkCanvas(x, y, false, currentStrokeWidth, annotColor, currentOpacity);
   };
 
-  const onHlUp = () => {
+  const onStrokeUp = () => {
     if (!inkDrawing || !overlayRef.current) return;
     setInkDrawing(false);
     clearInkCanvas();
@@ -290,45 +300,9 @@ export default function PDFPageItem({
           y: pxToPercent(p.y, rect.height),
         })),
         color: annotColor,
-        width: hlWidth,
-        opacity: 0.35,
-        isHighlight: true,
-      });
-    }
-    inkPointsRef.current = [];
-  };
-
-  // Ink
-  const onInkDown = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>) => {
-    const { x, y } = getRelPos(e);
-    setInkDrawing(true);
-    inkPointsRef.current = [{ x, y }];
-    drawOnInkCanvas(x, y, true, inkWidth, annotColor, 1.0);
-  };
-
-  const onInkMove = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>) => {
-    if (!inkDrawing) return;
-    const { x, y } = getRelPos(e);
-    inkPointsRef.current.push({ x, y });
-    drawOnInkCanvas(x, y, false, inkWidth, annotColor, 1.0);
-  };
-
-  const onInkUp = () => {
-    if (!inkDrawing || !overlayRef.current) return;
-    setInkDrawing(false);
-    clearInkCanvas();
-    const rect = overlayRef.current.getBoundingClientRect();
-    if (inkPointsRef.current.length > 1) {
-      onAddInkStroke({
-        page: pageNum,
-        points: inkPointsRef.current.map((p) => ({
-          x: pxToPercent(p.x, rect.width),
-          y: pxToPercent(p.y, rect.height),
-        })),
-        color: annotColor,
-        width: inkWidth,
-        opacity: 1.0,
-        isHighlight: false,
+        width: currentStrokeWidth,
+        opacity: currentOpacity,
+        isHighlight: isHighlighter,
       });
     }
     inkPointsRef.current = [];
@@ -422,89 +396,75 @@ export default function PDFPageItem({
     setDragRect(null);
   };
 
-  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (toolMode === 'highlight') onHlDown(e);
-    else if (toolMode === 'ink') onInkDown(e);
-    else if (toolMode === 'eraser') onEraserDown(e);
-    else if (toolMode === 'shape') onShapeDown(e);
+  const handlePointerAction = (
+    e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>,
+    phase: 'down' | 'move' | 'up'
+  ) => {
+    if (toolMode === 'view') return;
+    if (phase === 'down') {
+      if (toolMode === 'highlight' || toolMode === 'ink') onStrokeDown(e);
+      else if (toolMode === 'eraser') onEraserDown(e);
+      else if (toolMode === 'shape') onShapeDown(e);
+    } else if (phase === 'move') {
+      if (toolMode === 'highlight' || toolMode === 'ink') onStrokeMove(e);
+      else if (toolMode === 'eraser') onEraserMove(e);
+      else if (toolMode === 'shape') onShapeMove(e);
+    } else if (phase === 'up') {
+      if (toolMode === 'highlight' || toolMode === 'ink') onStrokeUp();
+      else if (toolMode === 'eraser') onEraserUp();
+      else if (toolMode === 'shape') onShapeUp();
+    }
   };
 
-  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (toolMode === 'highlight') onHlMove(e);
-    else if (toolMode === 'ink') onInkMove(e);
-    else if (toolMode === 'eraser') onEraserMove(e);
-    else if (toolMode === 'shape') onShapeMove(e);
-  };
-
-  const handleMouseUp = () => {
-    if (toolMode === 'highlight') onHlUp();
-    else if (toolMode === 'ink') onInkUp();
-    else if (toolMode === 'eraser') onEraserUp();
-    else if (toolMode === 'shape') onShapeUp();
-  };
+  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => handlePointerAction(e, 'down');
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => handlePointerAction(e, 'move');
+  const handleMouseUp = () => handlePointerAction({} as any, 'up');
 
   // Touch handlers for mobile & tablet
   const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
     if (toolMode === 'view') return;
     e.preventDefault();
-    if (toolMode === 'highlight') onHlDown(e);
-    else if (toolMode === 'ink') onInkDown(e);
-    else if (toolMode === 'eraser') onEraserDown(e);
-    else if (toolMode === 'shape') onShapeDown(e);
+    handlePointerAction(e, 'down');
   };
 
   const handleTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
     if (toolMode === 'view') return;
     e.preventDefault();
-    if (toolMode === 'highlight') onHlMove(e);
-    else if (toolMode === 'ink') onInkMove(e);
-    else if (toolMode === 'eraser') onEraserMove(e);
-    else if (toolMode === 'shape') onShapeMove(e);
+    handlePointerAction(e, 'move');
   };
 
   const handleTouchEnd = (e: React.TouchEvent<HTMLDivElement>) => {
     if (toolMode === 'view') return;
     e.preventDefault();
-    if (toolMode === 'highlight') onHlUp();
-    else if (toolMode === 'ink') onInkUp();
-    else if (toolMode === 'eraser') onEraserUp();
-    else if (toolMode === 'shape') onShapeUp();
-    else if (toolMode === 'note') {
-      const { x, y } = getRelPos(e);
-      const rect = overlayRef.current!.getBoundingClientRect();
-      setNotePopup({
-        x: Math.min(80, Math.max(5, (x / rect.width) * 100)),
-        y: Math.min(80, Math.max(5, (y / rect.height) * 100)),
-      });
+    handlePointerAction(e, 'up');
+    if (toolMode === 'note' || toolMode === 'textbox') {
+      placeTextOrNote(e, toolMode);
+    }
+  };
+
+  const placeTextOrNote = (
+    e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>,
+    mode: 'note' | 'textbox'
+  ) => {
+    const { x, y } = getRelPos(e);
+    const rect = overlayRef.current!.getBoundingClientRect();
+    const pos = {
+      x: Math.min(80, Math.max(5, (x / rect.width) * 100)),
+      y: Math.min(80, Math.max(5, (y / rect.height) * 100)),
+    };
+    if (mode === 'note') {
+      setNotePopup(pos);
       setNoteText('');
-    } else if (toolMode === 'textbox') {
-      const { x, y } = getRelPos(e);
-      const rect = overlayRef.current!.getBoundingClientRect();
-      setActiveTextBox({
-        x: Math.min(80, Math.max(5, (x / rect.width) * 100)),
-        y: Math.min(80, Math.max(5, (y / rect.height) * 100)),
-        text: '',
-      });
+    } else {
+      setActiveTextBox({ ...pos, text: '' });
     }
   };
 
   const handleOverlayClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (toolMode === 'note' && !isDrawing) {
-      const { x, y } = getRelPos(e);
-      const rect = overlayRef.current!.getBoundingClientRect();
-      setNotePopup({
-        x: Math.min(80, Math.max(5, (x / rect.width) * 100)),
-        y: Math.min(80, Math.max(5, (y / rect.height) * 100)),
-      });
-      setNoteText('');
+      placeTextOrNote(e, 'note');
     } else if (toolMode === 'textbox') {
-      const { x, y } = getRelPos(e);
-      const rect = overlayRef.current!.getBoundingClientRect();
-      setActiveTextBox({
-        x: Math.min(80, Math.max(5, (x / rect.width) * 100)),
-        y: Math.min(80, Math.max(5, (y / rect.height) * 100)),
-        text: '',
-      });
+      placeTextOrNote(e, 'textbox');
     } else {
       onSelectShapeId(null);
     }
@@ -835,7 +795,7 @@ export default function PDFPageItem({
               style={{ left: `${tb.x}%`, top: `${tb.y}%` }}
             >
               <div
-                className="px-1.5 py-0.5 rounded border text-xs whitespace-pre-wrap max-w-[200px] shadow-sm"
+                className="px-1.5 py-0.5 rounded border text-xs whitespace-pre-wrap max-w-50 shadow-sm"
                 style={{
                   color: tb.color,
                   fontSize: tb.fontSize,
@@ -861,14 +821,14 @@ export default function PDFPageItem({
           {notePopup && (
             <div
               onClick={(e) => e.stopPropagation()}
-              className="absolute z-50 p-4 w-60 rounded-xl shadow-xl border border-[var(--color-outline-variant)] bg-[var(--color-surface)] text-[var(--color-on-surface)]"
+              className="absolute z-50 p-4 w-60 rounded-xl shadow-xl border border-(--color-outline-variant) bg-(--color-surface) text-(--color-on-surface)"
               style={{ left: `${notePopup.x}%`, top: `${notePopup.y}%` }}
             >
               <div className="flex items-center justify-between mb-2">
                 <span className="text-[11px] font-semibold text-zinc-500">Add Sticky Note</span>
                 <button
                   onClick={() => setNotePopup(null)}
-                  className="p-1 rounded hover:bg-[var(--color-surface-container-high)] text-zinc-400"
+                  className="p-1 rounded hover:bg-(--color-surface-container-high) text-zinc-400"
                 >
                   <X size={12} />
                 </button>
@@ -884,14 +844,14 @@ export default function PDFPageItem({
               <div className="flex justify-end gap-1.5 mt-2">
                 <button
                   onClick={() => setNotePopup(null)}
-                  className="btn-secondary !h-7 !px-2.5 !py-0 !text-[11px]"
+                  className="btn-secondary h-7! px-2.5! py-0! text-[11px]!"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleSaveNote}
                   disabled={!noteText.trim()}
-                  className="btn-primary !h-7 !px-2.5 !py-0 !text-[11px]"
+                  className="btn-primary h-7! px-2.5! py-0! text-[11px]!"
                 >
                   Save
                 </button>
@@ -920,7 +880,7 @@ export default function PDFPageItem({
                     handleSaveTextBox();
                   }
                 }}
-                className="text-xs px-2 py-1 rounded border min-w-[120px] outline-none resize-none shadow-md"
+                className="text-xs px-2 py-1 rounded border min-w-30 outline-none resize-none shadow-md"
                 style={{
                   color: annotColor,
                   borderColor: annotColor + '88',
