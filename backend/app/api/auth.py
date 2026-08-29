@@ -35,7 +35,8 @@ async def oauth_callback(
             refresh_token=refresh_token
         )
 
-        redirect_target = f"{FRONTEND_URL}?auth_success=1&token={session_token}"
+        frontend_target = state if (state and state.startswith("http")) else FRONTEND_URL
+        redirect_target = f"{frontend_target}?auth_success=1&token={session_token}"
         res = RedirectResponse(url=redirect_target)
         res.set_cookie(
             key=TOKEN_STORAGE_COOKIE,
@@ -47,7 +48,8 @@ async def oauth_callback(
         )
         return res
     except Exception as e:
-        redirect_err = f"{FRONTEND_URL}?auth_error={str(e)}"
+        frontend_target = state if (state and state.startswith("http")) else FRONTEND_URL
+        redirect_err = f"{frontend_target}?auth_error={str(e)}"
         return RedirectResponse(url=redirect_err)
 
 

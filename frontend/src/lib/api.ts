@@ -60,11 +60,14 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   return res as unknown as T;
 }
 
-// ── Auth API ─────────────────────────────────────────────────────────────────
+export async function getGoogleAuthUrl(redirectUri?: string, state?: string): Promise<string> {
+  const params = new URLSearchParams();
+  if (redirectUri) params.set('redirect_uri', redirectUri);
+  const effectiveState = state || (typeof window !== 'undefined' ? window.location.origin : undefined);
+  if (effectiveState) params.set('state', effectiveState);
 
-export async function getGoogleAuthUrl(redirectUri?: string): Promise<string> {
-  const urlParams = redirectUri ? `?redirect_uri=${encodeURIComponent(redirectUri)}` : '';
-  const data = await request<{ url: string }>(`/api/auth/url${urlParams}`);
+  const qs = params.toString() ? `?${params.toString()}` : '';
+  const data = await request<{ url: string }>(`/api/auth/url${qs}`);
   return data.url;
 }
 
