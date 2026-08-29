@@ -41,7 +41,8 @@ async def oauth_callback(
             key=TOKEN_STORAGE_COOKIE,
             value=session_token,
             httponly=True,
-            samesite="lax",
+            samesite="none",
+            secure=True,
             max_age=30 * 24 * 3600
         )
         return res
@@ -85,7 +86,8 @@ async def exchange_token(payload: GoogleTokenRequest, response: Response):
             key=TOKEN_STORAGE_COOKIE,
             value=session_token,
             httponly=True,
-            samesite="lax",
+            samesite="none",
+            secure=True,
             max_age=30 * 24 * 3600
         )
 
