@@ -24,6 +24,7 @@ import {
 import DocumentSidebar from './components/DocumentSidebar';
 import PDFReader from './components/PDFReader';
 import AnnotationPanel from './components/AnnotationPanel';
+import BookAIPanel from './components/BookAIPanel';
 import {
   BookOpen,
   ShieldAlert,
@@ -34,6 +35,7 @@ import {
   Sparkles,
   Flame,
   LogOut,
+  Bot,
 } from 'lucide-react';
 
 // ── Default empty progress ──────────────────────────────────────────────────
@@ -80,6 +82,7 @@ export default function App() {
   const [annotationsOpen, setAnnotationsOpen] = useState<boolean>(() =>
     typeof window !== 'undefined' ? window.innerWidth >= 1280 : false
   );
+  const [aiPanelOpen, setAiPanelOpen] = useState<boolean>(false);
   const [darkMode, setDarkMode] = useState<boolean>(false);
 
   const [loadingLibrary, setLoadingLibrary] = useState<boolean>(false);
@@ -673,6 +676,22 @@ export default function App() {
               <span className="hidden sm:inline">Annotations</span>
             </button>
 
+            {activeBookId && (
+              <button
+                onClick={() => setAiPanelOpen(!aiPanelOpen)}
+                className={`btn-secondary !h-8 !px-2.5 sm:!px-3 !py-1 text-xs ${
+                  aiPanelOpen
+                    ? '!bg-[#9061ff]/10 !text-[#9061ff] !border-[#9061ff]/30 font-semibold'
+                    : ''
+                }`}
+                title="Toggle AI Assistant panel"
+                id="toggle-ai-panel-btn"
+              >
+                <Bot size={14} />
+                <span className="hidden sm:inline">AI</span>
+              </button>
+            )}
+
             {!sidebarOpen && user && (
               <button
                 onClick={handleLogout}
@@ -789,6 +808,31 @@ export default function App() {
             darkMode={darkMode}
             onClose={() => setAnnotationsOpen(false)}
           />
+        </div>
+      )}
+
+      {/* ── AI Panel: Slide-over on mobile, docked on desktop ── */}
+      {aiPanelOpen && activeBookId && (
+        <div
+          onClick={() => setAiPanelOpen(false)}
+          className="fixed inset-0 bg-black/40 backdrop-blur-xs z-40 md:hidden"
+        />
+      )}
+
+      {activeBookId && (
+        <div
+          className={`fixed inset-y-0 right-0 z-50 md:static md:z-auto transition-transform duration-300 ease-in-out ${
+            aiPanelOpen ? 'translate-x-0' : 'translate-x-full md:hidden'
+          }`}
+        >
+          {aiPanelOpen && (
+            <BookAIPanel
+              bookId={activeBookId}
+              bookName={books.find(b => b.id === activeBookId)?.name || 'Book'}
+              darkMode={darkMode}
+              onClose={() => setAiPanelOpen(false)}
+            />
+          )}
         </div>
       )}
     </div>

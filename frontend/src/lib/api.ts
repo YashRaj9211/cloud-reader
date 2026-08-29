@@ -38,17 +38,21 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   });
 
   if (!res.ok) {
-    let errorDetail = 'Request failed';
+    let errorDetail = res.statusText || 'Request failed';
     try {
-      const errJson = await res.json();
-      errorDetail = errJson.detail || errJson.message || res.statusText;
+      const rawText = await res.text();
+      try {
+        const errJson = JSON.parse(rawText);
+        errorDetail = errJson.detail || errJson.message || rawText || errorDetail;
+      } catch {
+        errorDetail = rawText || errorDetail;
+      }
     } catch {
-      errorDetail = await res.text() || res.statusText;
+      // Fallback to default errorDetail if reading response fails
     }
     throw new Error(errorDetail);
   }
 
-  // If response is json, parse it; otherwise return raw text/response if needed
   const contentType = res.headers.get('content-type');
   if (contentType && contentType.includes('application/json')) {
     return res.json() as Promise<T>;
@@ -178,3 +182,129 @@ export async function saveSyncData(syncData: SyncData): Promise<SyncData> {
     body: JSON.stringify(syncData),
   });
 }
+
+// ── RAG API ──────────────────────────────────────────────────────────────────
+
+export interface RagStatus {
+  book_id: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  total_chunks?: number;
+  error_message?: string;
+  updated_at?: string;
+}
+
+export interface ChatSource {
+  page: number;
+  chunk_index: number;
+  text_preview: string;
+}
+
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  sources?: ChatSource[];
+  timestamp: string;
+}
+
+export interface BookNote {
+  id: string;
+  book_id: string;
+  scope: 'chapter' | 'full';
+  chapter_title?: string;
+  chapter_index?: number;
+  content?: string;
+  status: 'pending' | 'generating' | 'completed' | 'failed';
+  error_message?: string;
+  updated_at?: string;
+}
+
+/** Kick off the indexing pipeline for a book. Returns Celery task ID. */
+export async function processBook(bookId: string): Promise<{ book_id: string; task_id: string; message: string }> {
+  return request(`/api/rag/${bookId}/process`, { method: 'POST' });
+}
+
+/** Poll the indexing status for a book. */
+export async function getRagStatus(bookId: string): Promise<RagStatus> {
+  return request(`/api/rag/${bookId}/status`);
+}
+
+/** Ask a question about a book (non-streaming). */
+export async function chatWithBook(bookId: string, query: string): Promise<{ answer: string; sources: ChatSource[] }> {
+  return request(`/api/rag/${bookId}/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, stream: false }),
+  });
+}
+
+/**
+ * Ask a question with streaming SSE response.
+ * Returns an async generator that yields text tokens.
+ */
+export async function* chatWithBookStream(bookId: string, query: string): AsyncGenerator<string> {
+  const token = getStoredSessionToken();
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(`${API_BASE}/api/rag/${bookId}/chat`, {
+    method: 'POST',
+    credentials: 'include',
+    headers,
+    body: JSON.stringify({ query, stream: true }),
+  });
+
+  if (!res.ok) throw new Error(`Chat request failed: ${res.statusText}`);
+
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const chunk = decoder.decode(value, { stream: true });
+    // Parse SSE lines: "data: <token>\n\n"
+    for (const line of chunk.split('\n')) {
+      if (line.startsWith('data: ')) {
+        const token = line.slice(6);
+        if (token === '[DONE]') return;
+        if (token) {
+          // Decode backend's \n -> \\n replacements back to actual newlines
+          yield token.replace(/\\n/g, '\n');
+        }
+      }
+    }
+  }
+}
+
+/** Enqueue note generation (chapter or full). */
+export async function generateNotes(
+  bookId: string,
+  scope: 'chapter' | 'full',
+  bookTitle?: string
+): Promise<{ book_id: string; scope: string; orchestrator_task_id: string; message: string }> {
+  return request(`/api/rag/${bookId}/notes/generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scope, book_title: bookTitle }),
+  });
+}
+
+/** Fetch all generated notes for a book. */
+export async function fetchNotes(bookId: string): Promise<BookNote[]> {
+  return request(`/api/rag/${bookId}/notes`);
+}
+
+/** Retry generating a specific note. */
+export async function retryNote(bookId: string, noteId: string): Promise<{ message: string; note_id: string }> {
+  return request(`/api/rag/${bookId}/notes/${noteId}/retry`, {
+    method: 'POST',
+  });
+}
+
+/** Clear all notes for a book. */
+export async function clearNotes(bookId: string): Promise<{ message: string }> {
+  return request(`/api/rag/${bookId}/notes`, {
+    method: 'DELETE',
+  });
+}
+

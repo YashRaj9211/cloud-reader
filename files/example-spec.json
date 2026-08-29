@@ -1,0 +1,42 @@
+{
+  "duration": 6000,
+  "background": "#F2EEE4",
+  "loop": true,
+  "objects": [
+    {
+      "id": "ball",
+      "type": "circle",
+      "x": 120,
+      "y": 60,
+      "props": { "r": 18, "fill": "#C15C3F", "stroke": "#2B2B26", "strokeWeight": 2, "mass": 1, "startVisible": false }
+    },
+    {
+      "id": "velocityArrow",
+      "type": "arrow",
+      "x": 120,
+      "y": 60,
+      "attachTo": "ball",
+      "props": { "fill": "#4A6C7A", "stroke": "#4A6C7A", "strokeWeight": 2, "followVelocity": true, "velocityScale": 8 }
+    },
+    {
+      "id": "gravityLabel",
+      "type": "text",
+      "x": 300,
+      "y": 30,
+      "props": { "text": "", "size": 16, "fill": "#2B2B26" }
+    },
+    {
+      "id": "groundLine",
+      "type": "line",
+      "x": 20,
+      "y": 340,
+      "to": { "x": 460, "y": 340 },
+      "props": { "stroke": "#6B6659", "strokeWeight": 1 }
+    }
+  ],
+  "timeline": [
+    { "target": "ball", "at": 0, "action": "fadeIn", "duration": 400 },
+    { "target": "gravityLabel", "at": 200, "action": "setText", "text": "gravity: F = m·g" },
+    { "target": "ball", "at": 400, "action": "applyForce", "force": { "x": 0, "y": 0.6 }, "duration": 5000 }
+  ]
+}

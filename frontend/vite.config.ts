@@ -13,6 +13,7 @@ export default defineConfig(() => {
     },
     optimizeDeps: {
       exclude: ['pdfjs-dist'],
+      include: ['p5'],
     },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
