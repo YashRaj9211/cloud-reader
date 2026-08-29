@@ -13,6 +13,15 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
 SESSION_SECRET = os.getenv("SESSION_SECRET", "cloud-pdf-reader-secure-session-key-39281")
 TOKEN_STORAGE_COOKIE = "cloud_pdf_session"
 
+# TODO: DB config
+# TODO: Redis config
+# TODO: Kafka config
+# TODO: Chroma config
+# TODO: Embedding
+# TODO: Chuncking
+# TODO: LLM config
+
+
 # Scopes needed for Google Drive and User profile
 GOOGLE_SCOPES = [
     "openid",

@@ -31,7 +31,6 @@ app.include_router(auth_router, prefix="/api")
 app.include_router(books_router, prefix="/api")
 app.include_router(sync_router, prefix="/api")
 
-
 @app.get("/")
 def read_root():
     return {"message": "Cloud PDF Reader Backend API", "status": "running"}
