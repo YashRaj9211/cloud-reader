@@ -4,7 +4,7 @@ from sqlalchemy import select
 from fastapi.responses import StreamingResponse
 
 from app.db import get_db
-from app.models import BookRagStatus, IndexStatus, BookNote, NoteScope, ChatMessage
+from app.models import BookRagStatus, IndexStatus, BookNote, NoteScope, NoteStatus, ChatMessage
 from app.services.session import get_current_user_and_token, get_current_user
 from app.schemas import (
     ProcessBookResponse,
@@ -19,7 +19,7 @@ from app.services.rag_service import chat_stream
 
 # We need to trigger celery tasks
 from app.tasks.processing import process_book_task
-from app.tasks.notes import orchestrate_notes_task
+from app.tasks.notes import orchestrate_notes_task, generate_chapter_notes_task, generate_full_notes_task
 
 router = APIRouter(tags=["RAG"])
 
@@ -159,3 +159,49 @@ async def get_notes(
         )
         for n in notes
     ]
+
+
+@router.post("/rag/{book_id}/notes/{note_id}/retry")
+async def retry_note(
+    book_id: str,
+    note_id: str,
+    user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(BookNote).where(
+        BookNote.id == note_id,
+        BookNote.book_id == book_id,
+        BookNote.user_id == user.id
+    )
+    result = await db.execute(stmt)
+    note = result.scalar_one_or_none()
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+        
+    note.status = NoteStatus.PENDING
+    note.error_message = None
+    await db.commit()
+    
+    if note.scope == NoteScope.CHAPTER:
+        generate_chapter_notes_task.delay(str(note.id), book_id, note.chapter_title or "Chapter")
+    else:
+        generate_full_notes_task.delay(str(note.id), book_id, "this book")
+        
+    return {"message": "Retrying note generation", "note_id": note_id}
+
+
+@router.delete("/rag/{book_id}/notes")
+async def clear_notes(
+    book_id: str,
+    user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    from sqlalchemy import delete
+    await db.execute(
+        delete(BookNote).where(
+            BookNote.book_id == book_id,
+            BookNote.user_id == user.id
+        )
+    )
+    await db.commit()
+    return {"message": "All notes cleared for this book"}

@@ -68,11 +68,26 @@ def orchestrate_notes_task(book_id: str, user_id: str, scope: str, book_title: s
     If scope is 'full', dispatches a single full-book task.
     """
     async def run():
+        import uuid
+        from sqlalchemy import delete
         async with AsyncSessionLocal() as db:
             if scope == NoteScope.CHAPTER.value:
+                # Remove prior chapter notes for this book & user to avoid duplicate or orphaned entries
+                await db.execute(
+                    delete(BookNote).where(
+                        BookNote.book_id == book_id,
+                        BookNote.user_id == user_id,
+                        BookNote.scope == NoteScope.CHAPTER
+                    )
+                )
+                await db.commit()
+
                 chapters = detect_chapters(book_id)
+                dispatches = []
                 for i, title in enumerate(chapters):
+                    note_id = uuid.uuid4()
                     note = BookNote(
+                        id=note_id,
                         book_id=book_id,
                         user_id=user_id,
                         scope=NoteScope.CHAPTER,
@@ -81,11 +96,26 @@ def orchestrate_notes_task(book_id: str, user_id: str, scope: str, book_title: s
                         status=NoteStatus.PENDING
                     )
                     db.add(note)
-                    await db.commit() # commit to get ID
-                    
-                    generate_chapter_notes_task.delay(str(note.id), book_id, title)
+                    dispatches.append((str(note_id), title))
+
+                await db.commit()
+
+                for nid, title in dispatches:
+                    generate_chapter_notes_task.delay(nid, book_id, title)
             else:
+                # Remove prior full notes for this book & user
+                await db.execute(
+                    delete(BookNote).where(
+                        BookNote.book_id == book_id,
+                        BookNote.user_id == user_id,
+                        BookNote.scope == NoteScope.FULL
+                    )
+                )
+                await db.commit()
+
+                note_id = uuid.uuid4()
                 note = BookNote(
+                    id=note_id,
                     book_id=book_id,
                     user_id=user_id,
                     scope=NoteScope.FULL,
@@ -93,7 +123,7 @@ def orchestrate_notes_task(book_id: str, user_id: str, scope: str, book_title: s
                 )
                 db.add(note)
                 await db.commit()
-                
-                generate_full_notes_task.delay(str(note.id), book_id, book_title or "this book")
+
+                generate_full_notes_task.delay(str(note_id), book_id, book_title or "this book")
 
     asyncio.run(run())

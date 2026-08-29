@@ -89,10 +89,12 @@ if NEON_DATABASE_URL:
 
 connect_args["ssl"] = ssl_context
 
+from sqlalchemy.pool import NullPool
+
 engine = create_async_engine(
     url,
     connect_args=connect_args,
-    pool_pre_ping=True,
+    poolclass=NullPool,
 )
 
 AsyncSessionLocal = async_sessionmaker(
