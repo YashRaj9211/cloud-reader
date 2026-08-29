@@ -1,0 +1,16 @@
+meta {
+  name: Get Auth URL
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/auth/url
+  body: none
+  auth: none
+}
+
+params:query {
+  ~redirect_uri: http://localhost:5173
+  ~state: random_state_string
+}

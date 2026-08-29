@@ -1,0 +1,23 @@
+meta {
+  name: Replace Sync Data
+  type: http
+  seq: 2
+}
+
+put {
+  url: {{baseUrl}}/api/sync
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "version": "1.0",
+    "lastSynced": "2026-08-28T21:00:00Z",
+    "books": {}
+  }
+}

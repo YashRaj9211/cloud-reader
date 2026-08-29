@@ -1,0 +1,15 @@
+meta {
+  name: Get Processing Status
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/rag/{{bookId}}/status
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}

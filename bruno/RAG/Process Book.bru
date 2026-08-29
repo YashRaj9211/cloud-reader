@@ -1,0 +1,15 @@
+meta {
+  name: Process Book (RAG Pipeline)
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/rag/{{bookId}}/process
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}

@@ -1,0 +1,21 @@
+meta {
+  name: List Notes
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/api/rag/{{bookId}}/notes
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+script:post-response {
+  if (res.body && res.body.length > 0) {
+    bru.setEnvVar("noteId", res.body[0].id);
+  }
+}
