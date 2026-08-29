@@ -1,168 +1,81 @@
-"""
-Processing Tasks
-================
-Celery tasks for the book indexing pipeline:
-
-  process_book_task(book_id, user_id, pdf_bytes_b64)
-    Step 1: Parse PDF bytes → Markdown          (parse_pdf)
-    Step 2: Chunk Markdown                      (chunking_service)
-    Step 3: Generate embeddings for all chunks  (embedding_service)
-    Step 4: Store in ChromaDB                   (chroma_service)
-    Step 5: Update BookRagStatus in NeonDB
-
-The task reports progress by updating the `status` and `total_chunks`
-fields on the BookRagStatus record after each major step.
-"""
-import base64
 import asyncio
-import uuid
-from datetime import datetime, timezone
-
-from celery import Task
-from sqlalchemy import select
-
-from celery_app import celery_app
-from app.services.parse_pdf import parse_pdf
-from app.services.chunking_service import chunk_markdown
-from app.services.embedding_service import embed_texts
-from app.services.chroma_service import upsert_chunks, delete_collection
+from celery import shared_task
+from celery_app import celery_app  # noqa: F401
 from app.db import AsyncSessionLocal
+from sqlalchemy import select
 from app.models import BookRagStatus, IndexStatus
+from app.services.parse_pdf import parse_pdf_from_drive
+from app.services.chunking_service import chunk_text
+from app.services.embedding_service import embed_texts
+from app.services.chroma_service import add_chunks_to_chroma
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _run_async(coro):
-    """Run an async coroutine from a sync Celery task."""
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
-
-
-async def _update_status(
-    book_id: str,
-    user_id: str,
-    status: IndexStatus,
-    total_chunks: int = None,
-    error_message: str = None,
-    celery_task_id: str = None,
-):
-    async with AsyncSessionLocal() as session:
-        result = await session.execute(
-            select(BookRagStatus).where(
-                BookRagStatus.book_id == book_id,
-                BookRagStatus.user_id == user_id,
-            )
-        )
-        record = result.scalar_one_or_none()
-
-        if record is None:
-            record = BookRagStatus(
-                id=uuid.uuid4(),
-                book_id=book_id,
-                user_id=user_id,
-            )
-            session.add(record)
-
-        record.status = status
-        record.updated_at = datetime.now(timezone.utc)
-
-        if total_chunks is not None:
-            record.total_chunks = total_chunks
-        if error_message is not None:
-            record.error_message = error_message
-        if celery_task_id is not None:
-            record.celery_task_id = celery_task_id
-
-        await session.commit()
-
-
-# ---------------------------------------------------------------------------
-# Celery task
-# ---------------------------------------------------------------------------
-
-@celery_app.task(
-    bind=True,
-    name="app.tasks.processing.process_book_task",
-    queue="processing",
-    max_retries=2,
-    default_retry_delay=30,
-    acks_late=True,
-)
-def process_book_task(self: Task, book_id: str, user_id: str, pdf_bytes_b64: str):
+@shared_task(name="process_book_task", queue="processing", bind=True, max_retries=3)
+def process_book_task(self, book_id: str, user_id: str, token: str = None):
     """
-    Full indexing pipeline for a book.
-
-    Parameters
-    ----------
-    book_id       : Google Drive file ID
-    user_id       : Google user ID
-    pdf_bytes_b64 : Base64-encoded PDF bytes
+    Background task to process a book:
+    1. Parse PDF from Google Drive
+    2. Chunk text
+    3. Generate embeddings
+    4. Store in ChromaDB
     """
-    task_id = self.request.id
-    _run_async(_update_status(book_id, user_id, IndexStatus.PROCESSING, celery_task_id=task_id))
+    async def run_processing():
+        async with AsyncSessionLocal() as db:
+            # 1. Get status record and mark as PROCESSING
+            stmt = select(BookRagStatus).where(BookRagStatus.book_id == book_id, BookRagStatus.user_id == user_id)
+            result = await db.execute(stmt)
+            status_record = result.scalar_one_or_none()
+            
+            if not status_record:
+                return
+                
+            status_record.status = IndexStatus.PROCESSING
+            await db.commit()
+            
+            try:
+                # 2. Parse PDF
+                print(f"[{book_id}] Parsing PDF...")
+                pages = await parse_pdf_from_drive(book_id, user_id, token=token)
+                
+                # 3. Chunk text
+                print(f"[{book_id}] Chunking text...")
+                chunks = chunk_text(pages)
+                total_chunks = len(chunks)
+                status_record.total_chunks = total_chunks
+                await db.commit()
+                
+                if total_chunks == 0:
+                    print(f"[{book_id}] No extractable text found in PDF.")
+                    status_record.status = IndexStatus.FAILED
+                    status_record.error_message = "No extractable text found in PDF. The document may be scanned or empty."
+                    await db.commit()
+                    return
 
-    try:
-        # ----------------------------------------------------------------
-        # Step 1: Parse PDF → Markdown
-        # ----------------------------------------------------------------
-        pdf_bytes = base64.b64decode(pdf_bytes_b64)
-        parse_result = parse_pdf(pdf_bytes, ocr_mode="auto")
-        markdown_text = parse_result.markdown or ""
+                # 4. Embed chunks (batching logic would go here for large lists)
+                print(f"[{book_id}] Embedding {total_chunks} chunks...")
+                texts = [c["text"] for c in chunks]
+                # Embed in batches of 100 to avoid API limits
+                embeddings = []
+                batch_size = 100
+                for i in range(0, len(texts), batch_size):
+                    batch = texts[i:i + batch_size]
+                    embeddings.extend(embed_texts(batch))
+                
+                # 5. Store in ChromaDB
+                print(f"[{book_id}] Storing in ChromaDB...")
+                add_chunks_to_chroma(book_id, chunks, embeddings)
+                
+                # 6. Mark as COMPLETED
+                status_record.status = IndexStatus.COMPLETED
+                await db.commit()
+                print(f"[{book_id}] Processing complete.")
+                
+            except Exception as e:
+                import traceback
+                error_msg = f"{str(e)}\n{traceback.format_exc()}"
+                status_record.status = IndexStatus.FAILED
+                status_record.error_message = error_msg
+                await db.commit()
+                raise self.retry(exc=e, countdown=60)
 
-        if not markdown_text.strip():
-            raise ValueError("PDF produced no extractable text. Is it a scanned image-only PDF?")
-
-        # ----------------------------------------------------------------
-        # Step 2: Chunk Markdown
-        # ----------------------------------------------------------------
-        chunks = chunk_markdown(markdown_text, book_id=book_id, user_id=user_id)
-
-        if not chunks:
-            raise ValueError("Chunking produced zero chunks. The PDF may be empty or unreadable.")
-
-        # ----------------------------------------------------------------
-        # Step 3: Embed all chunks
-        # ----------------------------------------------------------------
-        texts = [c["text"] for c in chunks]
-        embeddings = embed_texts(texts, input_type="passage")
-
-        # ----------------------------------------------------------------
-        # Step 4: Store in ChromaDB (delete old index first for re-processing)
-        # ----------------------------------------------------------------
-        delete_collection(user_id=user_id, book_id=book_id)
-        upsert_chunks(
-            user_id=user_id,
-            book_id=book_id,
-            chunks=chunks,
-            embeddings=embeddings,
-        )
-
-        # ----------------------------------------------------------------
-        # Step 5: Update DB status → COMPLETED
-        # ----------------------------------------------------------------
-        _run_async(_update_status(
-            book_id, user_id, IndexStatus.COMPLETED,
-            total_chunks=len(chunks),
-        ))
-
-        return {
-            "status": "completed",
-            "book_id": book_id,
-            "total_chunks": len(chunks),
-        }
-
-    except Exception as exc:
-        _run_async(_update_status(
-            book_id, user_id, IndexStatus.FAILED,
-            error_message=str(exc),
-        ))
-        # Retry up to max_retries times
-        try:
-            raise self.retry(exc=exc)
-        except self.MaxRetriesExceededError:
-            raise
+    # Run the async function synchronously within the Celery worker thread
+    asyncio.run(run_processing())

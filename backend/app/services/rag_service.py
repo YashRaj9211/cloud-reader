@@ -1,157 +1,108 @@
-"""
-RAG Service
-===========
-Orchestrates the full retrieval-augmented generation pipeline:
-  1. Embed the user's query
-  2. Retrieve top-K chunks from ChromaDB
-  3. Rerank with NVIDIA NV-RerankQA
-  4. Build a prompt and call the NVIDIA LLM
-  5. Return the answer + source citations
-
-This service is used by the synchronous /chat endpoint.
-It does NOT queue background tasks; it runs in the FastAPI request/response cycle.
-"""
-from typing import List, Dict, Any, AsyncGenerator
-
-from openai import AsyncOpenAI
-
-from app.config import (
-    NVIDIA_API_KEY, NVIDIA_BASE_URL, NVIDIA_LLM_MODEL,
-    RAG_TOP_K,
-)
+from openai import OpenAI
+from app.config import NVIDIA_API_KEY, NVIDIA_BASE_URL, NVIDIA_LLM_MODEL, RAG_TOP_K
 from app.services.embedding_service import embed_query
 from app.services.chroma_service import query_collection
 from app.services.reranking_service import rerank_chunks
 
-
-# ---------------------------------------------------------------------------
-# LLM client (async for streaming support)
-# ---------------------------------------------------------------------------
-
-_llm = AsyncOpenAI(
+client = OpenAI(
     api_key=NVIDIA_API_KEY,
-    base_url=NVIDIA_BASE_URL,
+    base_url=NVIDIA_BASE_URL
 )
 
-# ---------------------------------------------------------------------------
-# Prompt builder
-# ---------------------------------------------------------------------------
-
-_SYSTEM_PROMPT = """\
-You are a knowledgeable reading assistant. You answer questions about a book
-based strictly on the provided excerpts. Always cite the page numbers when
-referencing specific information. If the answer cannot be found in the
-provided excerpts, say so honestly — do not hallucinate.
-"""
-
-
-def _build_prompt(query: str, chunks: List[Dict[str, Any]]) -> str:
-    context_parts = []
-    for i, chunk in enumerate(chunks, 1):
-        page_info = f"[Page {chunk['page']}]" if chunk.get("page") else ""
-        context_parts.append(f"Excerpt {i} {page_info}:\n{chunk['text']}")
-
-    context = "\n\n---\n\n".join(context_parts)
-    return f"Context from the book:\n\n{context}\n\n---\n\nQuestion: {query}"
-
-
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
-async def answer_question(
-    query: str,
-    book_id: str,
-    user_id: str,
-    top_k: int = RAG_TOP_K,
-) -> Dict[str, Any]:
+def chat_stream(book_id: str, query: str):
     """
-    Full RAG pipeline: embed → retrieve → rerank → generate.
-
-    Returns
-    -------
-    {
-        "answer":   str,                  # LLM response
-        "sources":  List[Dict[str, Any]], # reranked chunks used
-    }
+    RAG chat pipeline with streaming response.
+    1. Embed query
+    2. Retrieve top-k chunks from ChromaDB
+    3. Rerank chunks
+    4. Generate response using NVIDIA LLM
     """
-    # 1. Embed the query
-    query_vector = embed_query(query)
-
-    # 2. Retrieve from ChromaDB
-    retrieved = query_collection(
-        user_id=user_id,
-        book_id=book_id,
-        query_embedding=query_vector,
-        top_k=top_k,
+    # 1. Embed and retrieve
+    query_emb = embed_query(query)
+    chunks = query_collection(book_id, query_emb, top_k=RAG_TOP_K)
+    
+    # 2. Rerank
+    reranked = rerank_chunks(query, chunks)
+    
+    # 3. Build prompt context
+    context = "\n\n".join([f"Page {c.get('page', '?')}:\n{c['text']}" for c in reranked])
+    
+    system_prompt = (
+        "You are a helpful AI assistant for reading a book. "
+        "Use the following excerpts from the book to answer the user's question. "
+        "If you don't know the answer based on the excerpts, say you don't know. "
+        "Always cite the page number when referencing information from the text.\n\n"
+        "ANIMATION CAPABILITY:\n"
+        "When explaining a concept that would benefit from a visual or animated illustration "
+        "(e.g. physics, math, data structures, algorithms, processes, cycles), you SHOULD "
+        "generate a p5.js animation to help the user understand. Wrap the p5.js code in a "
+        "fenced code block with language identifier `p5js` (triple back-ticks p5js). "
+        "Rules for the animation code:\n"
+        "- Provide ONLY the body of the sketch (setup() and draw() functions, plus any helpers). "
+        "Do NOT include any HTML or <script> tags.\n"
+        "- Use `createCanvas(canvasWidth, canvasHeight)` inside setup(). Prefer 400×300 unless the concept needs more space.\n"
+        "- Use a PASTEL color theme exclusively. Example palette: "
+        "background(250, 243, 240), fill(255, 182, 193) (pink), fill(176, 224, 230) (powder blue), "
+        "fill(186, 230, 180) (mint green), fill(253, 223, 155) (cream yellow), fill(216, 191, 240) (lavender). "
+        "Never use harsh primary colors.\n"
+        "- Use basic shapes (ellipse, rect, triangle, line, arc) and smooth motion (sin, cos, lerp, noise).\n"
+        "- Keep animations lightweight — avoid heavy loops or pixel manipulation.\n"
+        "- Add brief text labels with `textSize(12); textAlign(CENTER); text(...)` where they aid understanding.\n"
+        "- The animation should loop and be self-explanatory.\n"
+        "Always accompany the animation with a short textual explanation before or after the code block."
     )
-
-    if not retrieved:
-        return {
-            "answer": "I couldn't find any relevant content in this book for your question.",
-            "sources": [],
-        }
-
-    # 3. Rerank
-    reranked = rerank_chunks(query=query, chunks=retrieved)
-
-    # 4. Build prompt and call LLM
-    user_message = _build_prompt(query, reranked)
-
-    response = await _llm.chat.completions.create(
+    
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": f"Context excerpts:\n{context}\n\nQuestion: {query}"}
+    ]
+    
+    # 4. Stream response
+    response = client.chat.completions.create(
         model=NVIDIA_LLM_MODEL,
-        messages=[
-            {"role": "system", "content": _SYSTEM_PROMPT},
-            {"role": "user", "content": user_message},
-        ],
-        temperature=0.2,
-        max_tokens=1024,
+        messages=messages,
+        temperature=1,
+        top_p=0.95,
+        max_tokens=16384,
+        extra_body={"chat_template_kwargs": {"enable_thinking": True}},
+        stream=True
     )
+    
+    for chunk in response:
+        if not chunk.choices:
+            continue
+        delta = chunk.choices[0].delta
+        if delta.content is not None:
+            yield delta.content
 
-    answer = response.choices[0].message.content or ""
 
-    return {
-        "answer": answer,
-        "sources": reranked,
-    }
-
-
-async def stream_answer(
-    query: str,
-    book_id: str,
-    user_id: str,
-    top_k: int = RAG_TOP_K,
-) -> AsyncGenerator[str, None]:
-    """
-    Streaming version of answer_question.
-    Yields LLM response tokens as they arrive (SSE-ready).
-
-    Usage:
-        async for token in stream_answer(...):
-            yield f"data: {token}\n\n"
-    """
-    query_vector = embed_query(query)
-    retrieved = query_collection(
-        user_id=user_id,
-        book_id=book_id,
-        query_embedding=query_vector,
-        top_k=top_k,
+def generate_note(book_id: str, query: str) -> str:
+    """Non-streaming version for note generation."""
+    query_emb = embed_query(query)
+    chunks = query_collection(book_id, query_emb, top_k=RAG_TOP_K)
+    reranked = rerank_chunks(query, chunks)
+    
+    context = "\n\n".join([f"Page {c.get('page', '?')}:\n{c['text']}" for c in reranked])
+    
+    system_prompt = (
+        "You are an expert academic summarizer. "
+        "Use the provided book excerpts to fulfill the user's request. "
+        "Format your output in clean Markdown with appropriate headings, bullet points, and bold text."
     )
-    reranked = rerank_chunks(query=query, chunks=retrieved)
-    user_message = _build_prompt(query, reranked)
-
-    stream = await _llm.chat.completions.create(
+    
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": f"Context:\n{context}\n\nRequest: {query}"}
+    ]
+    
+    response = client.chat.completions.create(
         model=NVIDIA_LLM_MODEL,
-        messages=[
-            {"role": "system", "content": _SYSTEM_PROMPT},
-            {"role": "user", "content": user_message},
-        ],
-        temperature=0.2,
-        max_tokens=1024,
-        stream=True,
+        messages=messages,
+        temperature=0.7,
+        top_p=0.95,
+        max_tokens=4096,
+        extra_body={"chat_template_kwargs": {"enable_thinking": False}},
     )
+    
+    return response.choices[0].message.content
 
-    async for chunk in stream:
-        delta = chunk.choices[0].delta.content
-        if delta:
-            yield delta

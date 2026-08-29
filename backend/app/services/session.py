@@ -1,5 +1,5 @@
 from typing import Optional, Dict, Any, Tuple
-from fastapi import Request, HTTPException, status, Header, Cookie
+from fastapi import Request, HTTPException, status, Header, Cookie, Depends
 from app.services.google_auth_service import google_auth_service
 from app.config import TOKEN_STORAGE_COOKIE
 from app.schemas import User
@@ -67,3 +67,10 @@ async def get_current_user_and_token(
             detail="Invalid or expired authentication session."
         )
 
+
+async def get_current_user(
+    auth_data: tuple[User, str] = Depends(get_current_user_and_token)
+) -> User:
+    """Helper dependency returning just the authenticated User object."""
+    user, _ = auth_data
+    return user

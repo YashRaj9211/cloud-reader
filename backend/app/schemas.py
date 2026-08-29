@@ -1,12 +1,17 @@
-from typing import List, Optional, Dict, Literal
+from typing import List, Optional, Dict, Literal, Any
 from pydantic import BaseModel, Field
 
+
+# ── Core Application Schemas ──────────────────────────────────────────────────
 
 class User(BaseModel):
     id: str
     email: str
     name: Optional[str] = None
     picture: Optional[str] = None
+
+    def __getitem__(self, item: str) -> Any:
+        return getattr(self, item)
 
 
 class Highlight(BaseModel):
@@ -118,9 +123,7 @@ class LibraryResponse(BaseModel):
     syncFileId: Optional[str] = None
 
 
-# ---------------------------------------------------------------------------
-# RAG Schemas
-# ---------------------------------------------------------------------------
+# ── RAG Processing Schemas ────────────────────────────────────────────────────
 
 class ProcessBookResponse(BaseModel):
     book_id: str
@@ -130,30 +133,38 @@ class ProcessBookResponse(BaseModel):
 
 class RagStatusResponse(BaseModel):
     book_id: str
-    status: str                      # pending | processing | completed | failed
+    status: str
     total_chunks: Optional[int] = None
     error_message: Optional[str] = None
     updated_at: Optional[str] = None
 
 
-class ChatRequest(BaseModel):
-    query: str
-    stream: bool = False             # set True to get SSE streaming response
+# ── Chat Schemas ──────────────────────────────────────────────────────────────
 
-
-class ChatSourceChunk(BaseModel):
+class ChatSource(BaseModel):
     page: int
     chunk_index: int
     text_preview: str
 
 
+class ChatSourceChunk(ChatSource):
+    pass
+
+
+class ChatRequest(BaseModel):
+    query: str
+    stream: bool = True
+
+
 class ChatResponse(BaseModel):
     answer: str
-    sources: List[ChatSourceChunk] = Field(default_factory=list)
+    sources: List[ChatSource] = []
 
+
+# ── Notes Schemas ─────────────────────────────────────────────────────────────
 
 class GenerateNotesRequest(BaseModel):
-    scope: Literal["chapter", "full"] = "chapter"
+    scope: str = "chapter"          # "chapter" | "full"
     book_title: Optional[str] = None
 
 
@@ -167,10 +178,10 @@ class GenerateNotesResponse(BaseModel):
 class NoteResponse(BaseModel):
     id: str
     book_id: str
-    scope: str                       # chapter | full
+    scope: str
     chapter_title: Optional[str] = None
     chapter_index: Optional[int] = None
-    content: Optional[str] = None   # Markdown (None while generating)
-    status: str                      # pending | generating | completed | failed
+    content: Optional[str] = None
+    status: str
     error_message: Optional[str] = None
     updated_at: Optional[str] = None

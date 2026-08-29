@@ -3,6 +3,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api import auth_router, books_router, sync_router, rag_router
 from app.config import FRONTEND_URL
+from celery_app import celery_app  # noqa: F401 — binds Celery configuration and Redis broker
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -21,7 +23,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Configure CORS
 origins = [
     FRONTEND_URL,
     "http://localhost:3000",
@@ -38,7 +39,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Register routers under /api
 app.include_router(auth_router, prefix="/api")
 app.include_router(books_router, prefix="/api")
 app.include_router(sync_router, prefix="/api")

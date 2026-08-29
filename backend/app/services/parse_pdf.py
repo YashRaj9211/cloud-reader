@@ -93,6 +93,43 @@ def classify_pdf(source: Union[str, bytes, Path]):
         return pdf_inspector.classify_pdf(str(source))
 
 
+def extract_pages_from_pdf(source: Union[str, bytes, Path]) -> list[dict]:
+    """
+    Extracts text per page from PDF bytes or filepath using pypdfium2.
+    Returns list of dicts: [{'page': 1, 'text': '...'}, ...]
+    """
+    import pypdfium2 as pdfium
+    if isinstance(source, bytes):
+        pdf = pdfium.PdfDocument(source)
+    else:
+        pdf = pdfium.PdfDocument(str(source))
+        
+    pages = []
+    for i, page in enumerate(pdf):
+        textpage = page.get_textpage()
+        text = textpage.get_text_range()
+        pages.append({
+            "page": i + 1,
+            "text": text
+        })
+    return pages
+
+
+async def parse_pdf_from_drive(book_id: str, user_id: str = None, token: str = None) -> list[dict]:
+    """
+    Extracts text per page from a Google Drive PDF file or local file.
+    """
+    if token:
+        from app.services.google_drive_service import google_drive_service
+        pdf_bytes = await google_drive_service.download_pdf_content(token, book_id)
+        return extract_pages_from_pdf(pdf_bytes)
+    
+    if os.path.exists(book_id):
+        return extract_pages_from_pdf(book_id)
+        
+    return []
+
+
 if __name__ == "__main__":
     # Test path
     test_path = "C:/Users/yashr/Downloads/How To Prepare For Quantitative Aptitude For The Cat 8 E (Author Unknown) (z-library.sk, 1lib.sk, z-lib.sk).pdf"

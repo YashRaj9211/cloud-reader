@@ -4,7 +4,7 @@ from fastapi.responses import RedirectResponse
 from app.config import FRONTEND_URL, TOKEN_STORAGE_COOKIE
 from app.schemas import AuthStatus, GoogleTokenRequest, User
 from app.services.google_auth_service import google_auth_service
-from app.services.session import get_current_user_and_token
+from app.services.session import get_current_user_and_token, get_current_user
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 

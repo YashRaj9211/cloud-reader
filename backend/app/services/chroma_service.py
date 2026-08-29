@@ -1,178 +1,65 @@
-"""
-ChromaDB Service
-================
-Manages a single ChromaDB HTTP client and provides helpers to:
-  - get or create a per-book collection
-  - upsert chunks (with embeddings pre-computed)
-  - query for nearest neighbours
-  - delete a book's collection (on book deletion)
-
-Collection naming convention:
-    "book_{user_id}_{book_id}"
-    (ChromaDB collection names must be alphanumeric + underscores, 3-63 chars)
-
-Note: Embeddings are computed OUTSIDE this service (in embedding_service.py)
-and passed in as lists so that this service stays stateless.
-"""
-import re
 import hashlib
-from typing import List, Dict, Any, Optional
-
 import chromadb
-from chromadb.config import Settings
-
 from app.config import CHROMA_HOST, CHROMA_PORT
 
-
-# ---------------------------------------------------------------------------
-# Client singleton
-# ---------------------------------------------------------------------------
-
-_client: Optional[chromadb.HttpClient] = None
+# Create a global ChromaDB client for the app
+chroma_client = chromadb.HttpClient(host=CHROMA_HOST, port=CHROMA_PORT)
 
 
-def get_chroma_client() -> chromadb.HttpClient:
-    global _client
-    if _client is None:
-        _client = chromadb.HttpClient(
-            host=CHROMA_HOST,
-            port=CHROMA_PORT,
-            settings=Settings(anonymized_telemetry=False),
-        )
-    return _client
+def _get_collection_name(book_id: str) -> str:
+    """Generate a stable collection name from the book_id using SHA-256."""
+    return "book_" + hashlib.sha256(book_id.encode()).hexdigest()[:32]
 
 
-# ---------------------------------------------------------------------------
-# Collection helpers
-# ---------------------------------------------------------------------------
-
-def _collection_name(user_id: str, book_id: str) -> str:
-    """
-    Derive a stable, ChromaDB-safe collection name from user_id + book_id.
-    ChromaDB names: 3-63 chars, alphanumeric + hyphens, no consecutive hyphens,
-    can't start/end with hyphen.
-    We SHA256-hash the concatenation to guarantee uniqueness and length.
-    """
-    raw = f"{user_id}_{book_id}"
-    digest = hashlib.sha256(raw.encode()).hexdigest()[:40]
-    return f"book-{digest}"
-
-
-def get_or_create_collection(user_id: str, book_id: str) -> chromadb.Collection:
-    client = get_chroma_client()
-    name = _collection_name(user_id, book_id)
-    return client.get_or_create_collection(
-        name=name,
-        metadata={"hnsw:space": "cosine"},  # cosine similarity
+def get_book_collection(book_id: str):
+    """Get or create a ChromaDB collection for a specific book."""
+    collection_name = _get_collection_name(book_id)
+    return chroma_client.get_or_create_collection(
+        name=collection_name,
+        metadata={"book_id": book_id}
     )
 
 
-def delete_collection(user_id: str, book_id: str) -> None:
-    """Remove a book's entire vector collection from ChromaDB."""
-    client = get_chroma_client()
-    name = _collection_name(user_id, book_id)
-    try:
-        client.delete_collection(name)
-    except Exception:
-        pass  # collection may not exist yet; ignore
+def add_chunks_to_chroma(book_id: str, chunks: list[dict], embeddings: list[list[float]]):
+    """Add text chunks and their embeddings to the book's Chroma collection."""
+    if not chunks or not embeddings or len(chunks) != len(embeddings):
+        raise ValueError("Chunks and embeddings must be non-empty and of equal length.")
 
-
-# ---------------------------------------------------------------------------
-# Upsert
-# ---------------------------------------------------------------------------
-
-def upsert_chunks(
-    user_id: str,
-    book_id: str,
-    chunks: List[Dict[str, Any]],
-    embeddings: List[List[float]],
-) -> None:
-    """
-    Store pre-computed embeddings alongside chunk text and metadata.
-
-    Parameters
-    ----------
-    chunks      : list returned by chunking_service.chunk_markdown()
-    embeddings  : parallel list of embedding vectors (same order as chunks)
-    """
-    if not chunks:
-        return
-
-    collection = get_or_create_collection(user_id, book_id)
-
-    ids = [f"{book_id}_chunk_{c['chunk_index']}" for c in chunks]
-    documents = [c["text"] for c in chunks]
+    collection = get_book_collection(book_id)
+    
+    ids = [f"{book_id}_{i}" for i in range(len(chunks))]
+    documents = [chunk["text"] for chunk in chunks]
     metadatas = [
-        {
-            "book_id": c["book_id"],
-            "user_id": c["user_id"],
-            "page": c["page"],
-            "chunk_index": c["chunk_index"],
-        }
-        for c in chunks
+        {"page": chunk.get("page", 1), "chunk_index": i} 
+        for i, chunk in enumerate(chunks)
     ]
-
+    
     collection.upsert(
         ids=ids,
-        documents=documents,
         embeddings=embeddings,
-        metadatas=metadatas,
+        documents=documents,
+        metadatas=metadatas
     )
 
 
-# ---------------------------------------------------------------------------
-# Query
-# ---------------------------------------------------------------------------
-
-def query_collection(
-    user_id: str,
-    book_id: str,
-    query_embedding: List[float],
-    top_k: int,
-) -> List[Dict[str, Any]]:
-    """
-    Retrieve the top_k most similar chunks for a query embedding.
-
-    Returns a list of dicts:
-        {
-            "id":           str,
-            "text":         str,
-            "page":         int,
-            "chunk_index":  int,
-            "distance":     float,  # lower = more similar (cosine)
-        }
-    """
-    collection = get_or_create_collection(user_id, book_id)
+def query_collection(book_id: str, query_embedding: list[float], top_k: int = 10) -> list[dict]:
+    """Query the book's collection with an embedding and return top_k chunks."""
+    collection = get_book_collection(book_id)
     results = collection.query(
         query_embeddings=[query_embedding],
         n_results=top_k,
-        include=["documents", "metadatas", "distances"],
+        include=["documents", "metadatas", "distances"]
     )
-
-    hits = []
-    for doc, meta, dist, cid in zip(
-        results["documents"][0],
-        results["metadatas"][0],
-        results["distances"][0],
-        results["ids"][0],
-    ):
-        hits.append({
-            "id": cid,
+    
+    if not results or not results["documents"] or not results["documents"][0]:
+        return []
+        
+    chunks = []
+    for doc, meta in zip(results["documents"][0], results["metadatas"][0]):
+        chunks.append({
             "text": doc,
-            "page": meta.get("page", 0),
-            "chunk_index": meta.get("chunk_index", 0),
-            "distance": dist,
+            "page": meta.get("page", 1) if meta else 1,
+            "chunk_index": meta.get("chunk_index", 0) if meta else 0
         })
-
-    return hits
-
-
-def collection_exists(user_id: str, book_id: str) -> bool:
-    """Check whether a book has been indexed into ChromaDB."""
-    client = get_chroma_client()
-    name = _collection_name(user_id, book_id)
-    try:
-        client.get_collection(name)
-        return True
-    except Exception:
-        return False
+        
+    return chunks
