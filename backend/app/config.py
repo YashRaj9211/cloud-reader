@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 env_path = Path(__file__).resolve().parent.parent / ".env"
 load_dotenv(dotenv_path=env_path)
 
+# Core App Settings
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/api/auth/callback")
@@ -13,14 +14,42 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
 SESSION_SECRET = os.getenv("SESSION_SECRET", "cloud-pdf-reader-secure-session-key-39281")
 TOKEN_STORAGE_COOKIE = "cloud_pdf_session"
 
-# TODO: DB config
-# TODO: Redis config
-# TODO: Kafka config
-# TODO: Chroma config
-# TODO: Embedding
-# TODO: Chuncking
-# TODO: LLM config
+# NVIDIA AI & Embeddings
+NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY")
+LLM_MODEL = os.getenv("LLM_MODEL")
+LLM_URL = os.getenv("LLM_URL")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL")
+EMBEDDING_URL = os.getenv("EMBEDDING_URL")
+EMBEDDING_KEY = os.getenv("EMBEDDING_KEY")
 
+# Service Configs from app.configs
+from app.configs import (
+    CHROMA_HOST,
+    CHROMA_PORT,
+    CHROMA_SERVER_HOST,
+    CHROMA_SERVER_PORT,
+    get_chroma_client,
+    DATABASE_URL,
+    DB_POOL_SIZE,
+    DB_MAX_OVERFLOW,
+    KAFKA_BOOTSTRAP_SERVERS,
+    KAFKA_INTERNAL_BOOTSTRAP_SERVERS,
+    KAFKA_UI_URL,
+    PDF_PROCESSING_TOPIC,
+    PDF_INDEXING_TOPIC,
+    KAFKA_CONSUMER_GROUP,
+    REDIS_HOST,
+    REDIS_PORT,
+    REDIS_URL,
+    DEFAULT_CACHE_TTL,
+    SESSION_CACHE_TTL,
+    PROMETHEUS_PORT,
+    PROMETHEUS_ENABLED,
+    ZIPKIN_ENDPOINT,
+    OTEL_EXPORTER_OTLP_ENDPOINT,
+    OTEL_EXPORTER_OTLP_HTTP_ENDPOINT,
+    OTEL_SERVICE_NAME,
+)
 
 # Scopes needed for Google Drive and User profile
 GOOGLE_SCOPES = [
@@ -29,3 +58,4 @@ GOOGLE_SCOPES = [
     "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/drive.file",
 ]
+

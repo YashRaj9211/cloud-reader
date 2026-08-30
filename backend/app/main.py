@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api import auth_router, books_router, sync_router
 from app.config import FRONTEND_URL
+from app.middlewares import setup_prometheus_and_monitoring
 
 app = FastAPI(
     title="Cloud PDF Reader API",
@@ -31,6 +32,9 @@ app.include_router(auth_router, prefix="/api")
 app.include_router(books_router, prefix="/api")
 app.include_router(sync_router, prefix="/api")
 
+# Setup Prometheus metrics and request logging middleware (/metrics endpoint)
+setup_prometheus_and_monitoring(app)
+
 @app.get("/")
 def read_root():
     return {"message": "Cloud PDF Reader Backend API", "status": "running"}
@@ -38,4 +42,4 @@ def read_root():
 
 @app.get("/api/health")
 def health_check():
-    return {"status": "healthy"}
+    return {"status": "healthy"}

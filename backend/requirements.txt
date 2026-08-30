@@ -8,4 +8,10 @@ pyjwt>=2.9.0
 itsdangerous>=2.2.0
 langchain-text-splitters
 langchain-nvidia-ai-endpoints
-chroma
+chromadb>=0.5.0
+redis>=5.0.0
+sqlalchemy>=2.0.0
+asyncpg>=0.29.0
+psycopg2-binary>=2.9.9
+aiokafka>=0.11.0
+prometheus-fastapi-instrumentator>=7.0.0
