@@ -13,12 +13,15 @@ DB_POOL_SIZE: int = int(os.getenv("DB_POOL_SIZE"))
 DB_MAX_OVERFLOW: int = int(os.getenv("DB_MAX_OVERFLOW"))
 
 # Lazy/Safe SQLAlchemy Engine & Session
-engine = create_engine(
-    DATABASE_URL,
-    pool_size=DB_POOL_SIZE,
-    max_overflow=DB_MAX_OVERFLOW,
-    pool_pre_ping=True
-) if DATABASE_URL else None
+try:
+    engine = create_engine(
+        DATABASE_URL,
+        pool_size=DB_POOL_SIZE,
+        max_overflow=DB_MAX_OVERFLOW,
+        pool_pre_ping=True
+    ) if DATABASE_URL else None
+except Exception:
+    engine = None
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine) if engine else None
 Base = declarative_base()

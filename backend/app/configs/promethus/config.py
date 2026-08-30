@@ -1,6 +1,9 @@
 import os
 from fastapi import FastAPI
-from prometheus_fastapi_instrumentator import Instrumentator
+try:
+    from prometheus_fastapi_instrumentator import Instrumentator
+except ImportError:
+    Instrumentator = None
 
 PROMETHEUS_PORT: int = int(os.getenv("PROMETHEUS_PORT", "9090"))
 PROMETHEUS_ENABLED: bool = os.getenv("PROMETHEUS_ENABLED", "true").lower() in ("true", "1", "yes")
@@ -15,5 +18,5 @@ def setup_prometheus(app: FastAPI):
     """
     Instruments FastAPI app with Prometheus metrics and exposes `/metrics`.
     """
-    if PROMETHEUS_ENABLED:
+    if PROMETHEUS_ENABLED and Instrumentator is not None:
         Instrumentator().instrument(app).expose(app, endpoint="/metrics")

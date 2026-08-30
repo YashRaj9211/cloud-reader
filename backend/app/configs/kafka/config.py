@@ -1,7 +1,10 @@
 import os
 import json
-from typing import Optional, Callable
-from aiokafka import AIOKafkaProducer, AIOKafkaConsumer
+try:
+    from aiokafka import AIOKafkaProducer, AIOKafkaConsumer
+except ImportError:
+    AIOKafkaProducer = None
+    AIOKafkaConsumer = None
 
 KAFKA_BOOTSTRAP_SERVERS: str = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 KAFKA_INTERNAL_BOOTSTRAP_SERVERS: str = os.getenv("KAFKA_INTERNAL_BOOTSTRAP_SERVERS", "kafka:29092")
