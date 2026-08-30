@@ -21,6 +21,7 @@ from app.schema.folder import (
     FolderCreate,
     FolderUpdate,
     FolderResponse,
+    FolderDetailResponse,
     DocumentFolderLink,
 )
 from app.schema.chapter import (
@@ -68,6 +69,7 @@ __all__ = [
     "FolderCreate",
     "FolderUpdate",
     "FolderResponse",
+    "FolderDetailResponse",
     "DocumentFolderLink",
     "ChapterBase",
     "ChapterCreate",

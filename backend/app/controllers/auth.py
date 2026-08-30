@@ -1,29 +1,21 @@
 import time
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi import HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 from app.config import FRONTEND_URL, TOKEN_STORAGE_COOKIE
 from app.schemas import AuthStatus, GoogleTokenRequest, User
 from app.services.google_auth_service import google_auth_service
-from app.services.session import get_current_user_and_token
 from app.services.session_store import session_store
 
-router = APIRouter(prefix="/auth", tags=["auth"])
 
-
-@router.get("/url")
-def get_auth_url(redirect_uri: Optional[str] = None, state: Optional[str] = None):
+async def get_auth_url_controller(redirect_uri: Optional[str] = None, state: Optional[str] = None) -> dict:
     """Returns the Google OAuth consent URL"""
     url = google_auth_service.get_authorization_url(redirect_uri=redirect_uri, state=state)
     return {"url": url}
 
 
-@router.get("/callback")
-async def oauth_callback(
-    code: str = Query(...),
-    state: Optional[str] = Query(None),
-):
-    """Google OAuth redirect callback endpoint"""
+async def oauth_callback_controller(code: str, state: Optional[str] = None) -> RedirectResponse:
+    """Google OAuth redirect callback endpoint handler"""
     try:
         token_data = await google_auth_service.exchange_code_for_tokens(code)
         access_token = token_data.get("access_token")
@@ -61,8 +53,7 @@ async def oauth_callback(
         return RedirectResponse(url=redirect_err)
 
 
-@router.post("/token")
-async def exchange_token(payload: GoogleTokenRequest, response: Response):
+async def exchange_token_controller(payload: GoogleTokenRequest, response: Response) -> dict:
     """
     Exchanges authorization code or accepts access token,
     validates with Google and sets up a session.
@@ -117,6 +108,8 @@ async def exchange_token(payload: GoogleTokenRequest, response: Response):
             "session_token": session_token,
             "access_token": access_token
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -124,17 +117,13 @@ async def exchange_token(payload: GoogleTokenRequest, response: Response):
         )
 
 
-@router.get("/me", response_model=AuthStatus)
-async def get_current_user_profile(
-    auth_data: tuple[User, str] = Depends(get_current_user_and_token)
-):
+async def get_current_user_profile_controller(auth_data: tuple[User, str]) -> AuthStatus:
     """Returns the authenticated user's profile"""
     user, _ = auth_data
     return AuthStatus(authenticated=True, user=user)
 
 
-@router.post("/logout")
-async def logout(request: Request, response: Response):
+async def logout_controller(request: Request, response: Response) -> dict:
     """Clears the session from Redis and cookie"""
     session_id = getattr(request.state, "session_id", None) or request.cookies.get(TOKEN_STORAGE_COOKIE)
     if session_id:

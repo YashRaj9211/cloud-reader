@@ -1,13 +1,13 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api import auth_router, books_router, sync_router
 from app.config import FRONTEND_URL
-from app.middlewares import setup_prometheus_and_monitoring
+from app.middlewares import AuthenticationMiddleware, setup_prometheus_and_monitoring
+from app.routes import api_router
 
 app = FastAPI(
     title="Cloud PDF Reader API",
     description="Backend API managing Google Authentication and Google Drive PDF sync/storage.",
-    version="1.0.0"
+    version="1.0.0",
 )
 
 # Configure CORS
@@ -27,13 +27,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Register routers under /api
-app.include_router(auth_router, prefix="/api")
-app.include_router(books_router, prefix="/api")
-app.include_router(sync_router, prefix="/api")
+# Authentication & OAuth Session Middleware
+app.add_middleware(AuthenticationMiddleware)
+
+# Register consolidated API Router (public + private authenticated routes under /api)
+app.include_router(api_router)
 
 # Setup Prometheus metrics and request logging middleware (/metrics endpoint)
 setup_prometheus_and_monitoring(app)
+
 
 @app.get("/")
 def read_root():
@@ -42,4 +44,4 @@ def read_root():
 
 @app.get("/api/health")
 def health_check():
-    return {"status": "healthy"}
+    return {"status": "healthy"}

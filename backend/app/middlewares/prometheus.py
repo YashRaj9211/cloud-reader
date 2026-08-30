@@ -4,7 +4,10 @@ from typing import Callable
 from fastapi import FastAPI, Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from prometheus_client import Counter, Histogram, Gauge
-from prometheus_fastapi_instrumentator import Instrumentator
+try:
+    from prometheus_fastapi_instrumentator import Instrumentator
+except ImportError:
+    Instrumentator = None
 
 logger = logging.getLogger("api.monitoring")
 
@@ -52,10 +55,11 @@ class PrometheusLoggingMiddleware(BaseHTTPMiddleware):
         # Try to resolve route pattern (e.g. /api/books/{book_id}) to prevent high cardinality
         endpoint = path
         for route in request.app.routes:
-            match, _ = route.matches(request.scope)
-            if match.name == "FULL":
-                endpoint = route.path
-                break
+            if hasattr(route, "matches"):
+                match, _ = route.matches(request.scope)
+                if getattr(match, "name", "") == "FULL" and hasattr(route, "path"):
+                    endpoint = getattr(route, "path_format", route.path)
+                    break
 
         client_ip = request.client.host if request.client else "unknown"
         start_time = time.perf_counter()
@@ -114,13 +118,14 @@ def setup_prometheus_and_monitoring(app: FastAPI, endpoint: str = "/metrics") ->
     # Add custom logging and metrics middleware
     app.add_middleware(PrometheusLoggingMiddleware)
 
-    # Initialize Instrumentator and expose endpoint
-    instrumentator = Instrumentator(
-        should_group_status_codes=False,
-        should_ignore_untemplated=True,
-        should_respect_env_var=True,
-        excluded_handlers=["/metrics", "/docs", "/openapi.json", "/redoc"]
-    )
-    instrumentator.instrument(app).expose(app, endpoint=endpoint, include_in_schema=True)
-
-    return instrumentator
+    # Initialize Instrumentator and expose endpoint if available
+    if Instrumentator:
+        instrumentator = Instrumentator(
+            should_group_status_codes=False,
+            should_ignore_untemplated=True,
+            should_respect_env_var=True,
+            excluded_handlers=["/metrics", "/docs", "/openapi.json", "/redoc"]
+        )
+        instrumentator.instrument(app).expose(app, endpoint=endpoint, include_in_schema=True)
+        return instrumentator
+    return None

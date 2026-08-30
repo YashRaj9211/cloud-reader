@@ -7,4 +7,4 @@ class BookIndexer:
         #store embeddings in chromadb
         #update bookInfo in db to mark the field  isIndexed: true
         #create a notification event and queue it to be sent to the user
-        
+        pass

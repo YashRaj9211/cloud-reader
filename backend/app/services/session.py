@@ -1,7 +1,6 @@
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional, Tuple
 from fastapi import Request, HTTPException, status, Header, Cookie
 from app.services.google_auth_service import google_auth_service
-from app.config import TOKEN_STORAGE_COOKIE
 from app.schemas import User
 
 
@@ -11,10 +10,14 @@ async def get_current_user_and_token(
     cloud_pdf_session: Optional[str] = Cookie(None),
 ) -> Tuple[User, str]:
     """
-    Extracts the user and valid Google OAuth access token from:
-    1. Authorization Bearer header (Session JWT or raw Google Access Token)
-    2. Session Cookie (Session JWT)
+    Fast dependency resolving user and Google OAuth access token.
+    Prioritizes state set by AuthenticationMiddleware.
     """
+    # 1. Check if AuthenticationMiddleware already resolved the user & token
+    if getattr(request.state, "user", None) and getattr(request.state, "access_token", None):
+        return request.state.user, request.state.access_token
+
+    # 2. Fallback resolution if called outside middleware
     token_str = None
     if authorization and authorization.startswith("Bearer "):
         token_str = authorization.split("Bearer ", 1)[1].strip()
@@ -22,7 +25,6 @@ async def get_current_user_and_token(
         token_str = cloud_pdf_session
 
     if not token_str:
-        # Check query parameter (e.g. for streaming media)
         query_token = request.query_params.get("token")
         if query_token:
             token_str = query_token
@@ -33,7 +35,6 @@ async def get_current_user_and_token(
             detail="Authentication credentials were not provided."
         )
 
-    # First attempt: Try decoding as Session JWT
     session_data = google_auth_service.decode_session_token(token_str)
     if session_data and session_data.get("access_token"):
         user = User(
@@ -57,7 +58,6 @@ async def get_current_user_and_token(
                 detail="Google OAuth session expired. Please log in again."
             )
 
-    # Second attempt: Raw Google OAuth Access Token
     try:
         user = await google_auth_service.fetch_user_info(token_str)
         return user, token_str
@@ -66,4 +66,3 @@ async def get_current_user_and_token(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired authentication session."
         )
-

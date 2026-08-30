@@ -34,7 +34,7 @@ class GoogleDriveService:
                 for b_id, b_progress in data.get("books", {}).items():
                     books[b_id] = BookProgress(**b_progress)
                 return SyncData(books=books)
-            except Exception as e:
+            except Exception:
                 return SyncData(books={})
 
     @staticmethod
@@ -99,9 +99,21 @@ class GoogleDriveService:
             return new_file_id, sync_data
 
     @staticmethod
-    async def list_pdf_files(token: str) -> List[Dict[str, Any]]:
-        search_query = urllib.parse.quote("mimeType = 'application/pdf' and trashed = false")
-        url = f"https://www.googleapis.com/drive/v3/files?q={search_query}&fields=files(id,name,size,createdTime,modifiedTime)&orderBy=modifiedTime desc"
+    async def list_pdf_files(token: str, folder_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Lists PDF files from Google Drive.
+        If folder_id is specified, lists PDFs inside that folder.
+        """
+        query_parts = ["mimeType = 'application/pdf'", "trashed = false"]
+        if folder_id:
+            query_parts.append(f"'{folder_id}' in parents")
+        search_query = urllib.parse.quote(" and ".join(query_parts))
+
+        url = (
+            f"https://www.googleapis.com/drive/v3/files?q={search_query}"
+            f"&fields=files(id,name,size,createdTime,modifiedTime,parents)"
+            f"&orderBy=modifiedTime desc"
+        )
         async with httpx.AsyncClient() as client:
             resp = await client.get(url, headers={"Authorization": f"Bearer {token}"})
             if resp.status_code != 200:
@@ -119,12 +131,21 @@ class GoogleDriveService:
             return resp.content
 
     @staticmethod
-    async def upload_pdf_file(token: str, filename: str, content_type: str, file_bytes: bytes) -> str:
+    async def upload_pdf_file(
+        token: str,
+        filename: str,
+        content_type: str,
+        file_bytes: bytes,
+        parent_folder_id: Optional[str] = None,
+    ) -> str:
         boundary = "cloud_pdf_reader_upload_boundary"
-        metadata = {
+        metadata: Dict[str, Any] = {
             "name": filename,
             "mimeType": content_type or "application/pdf",
         }
+        if parent_folder_id:
+            metadata["parents"] = [parent_folder_id]
+
         meta_json = json.dumps(metadata)
         meta_part = f"--{boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{meta_json}\r\n".encode("utf-8")
         media_header = f"--{boundary}\r\nContent-Type: {content_type or 'application/pdf'}\r\n\r\n".encode("utf-8")
@@ -153,6 +174,184 @@ class GoogleDriveService:
             resp = await client.delete(url, headers={"Authorization": f"Bearer {token}"})
             if resp.status_code not in (200, 204):
                 raise Exception(f"Failed to delete file from Google Drive: {resp.text}")
+
+    # ==========================================
+    # Directory & Folder Management Methods
+    # ==========================================
+
+    @staticmethod
+    async def list_folders(token: str, parent_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Lists Google Drive directories / folders.
+        If parent_id is specified, lists subfolders inside parent_id.
+        """
+        query_parts = [
+            "mimeType = 'application/vnd.google-apps.folder'",
+            "trashed = false"
+        ]
+        if parent_id:
+            query_parts.append(f"'{parent_id}' in parents")
+
+        search_query = urllib.parse.quote(" and ".join(query_parts))
+        url = (
+            f"https://www.googleapis.com/drive/v3/files?q={search_query}"
+            f"&fields=files(id,name,parents,createdTime,modifiedTime)"
+            f"&orderBy=name"
+        )
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, headers={"Authorization": f"Bearer {token}"})
+            if resp.status_code != 200:
+                raise Exception(f"Failed to list directories: {resp.text}")
+            data = resp.json()
+            return data.get("files", [])
+
+    @staticmethod
+    async def get_folder(token: str, folder_id: str) -> Dict[str, Any]:
+        """
+        Gets details of a specific folder from Google Drive.
+        """
+        url = (
+            f"https://www.googleapis.com/drive/v3/files/{folder_id}"
+            f"?fields=id,name,parents,createdTime,modifiedTime"
+        )
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, headers={"Authorization": f"Bearer {token}"})
+            if resp.status_code != 200:
+                raise Exception(f"Failed to retrieve directory details: {resp.text}")
+            return resp.json()
+
+    @staticmethod
+    async def create_folder(
+        token: str,
+        name: str,
+        parent_folder_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Creates a new folder/directory in Google Drive.
+        """
+        metadata: Dict[str, Any] = {
+            "name": name,
+            "mimeType": "application/vnd.google-apps.folder",
+        }
+        if parent_folder_id:
+            metadata["parents"] = [parent_folder_id]
+
+        url = "https://www.googleapis.com/drive/v3/files?fields=id,name,parents,createdTime,modifiedTime"
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                url,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                },
+                json=metadata,
+            )
+            if resp.status_code not in (200, 201):
+                raise Exception(f"Failed to create directory: {resp.text}")
+            return resp.json()
+
+    @staticmethod
+    async def update_folder(
+        token: str,
+        folder_id: str,
+        name: Optional[str] = None,
+        parent_folder_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Renames or moves a folder in Google Drive.
+        """
+        params = {"fields": "id,name,parents,createdTime,modifiedTime"}
+        body: Dict[str, Any] = {}
+        if name:
+            body["name"] = name
+
+        url = f"https://www.googleapis.com/drive/v3/files/{folder_id}"
+        async with httpx.AsyncClient() as client:
+            if parent_folder_id:
+                # Fetch current parents to remove
+                existing = await GoogleDriveService.get_folder(token, folder_id)
+                prev_parents = ",".join(existing.get("parents", []))
+                params["addParents"] = parent_folder_id
+                if prev_parents:
+                    params["removeParents"] = prev_parents
+
+            resp = await client.patch(
+                url,
+                params=params,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                },
+                json=body if body else None,
+            )
+            if resp.status_code != 200:
+                raise Exception(f"Failed to update directory: {resp.text}")
+            return resp.json()
+
+    @staticmethod
+    async def delete_folder(token: str, folder_id: str) -> None:
+        """
+        Deletes a folder/directory from Google Drive.
+        """
+        await GoogleDriveService.delete_file(token, folder_id)
+
+    @staticmethod
+    async def move_file_to_folder(
+        token: str,
+        file_id: str,
+        target_folder_id: str,
+    ) -> Dict[str, Any]:
+        """
+        Moves a file/book into a target folder in Google Drive.
+        """
+        # Retrieve existing parents to remove
+        url_get = f"https://www.googleapis.com/drive/v3/files/{file_id}?fields=parents"
+        async with httpx.AsyncClient() as client:
+            resp_get = await client.get(url_get, headers={"Authorization": f"Bearer {token}"})
+            prev_parents = ""
+            if resp_get.status_code == 200:
+                prev_parents = ",".join(resp_get.json().get("parents", []))
+
+            url_patch = f"https://www.googleapis.com/drive/v3/files/{file_id}"
+            params = {
+                "addParents": target_folder_id,
+                "fields": "id,name,parents",
+            }
+            if prev_parents:
+                params["removeParents"] = prev_parents
+
+            resp_patch = await client.patch(
+                url_patch,
+                params=params,
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            if resp_patch.status_code != 200:
+                raise Exception(f"Failed to move file to directory: {resp_patch.text}")
+            return resp_patch.json()
+
+    @staticmethod
+    async def remove_file_from_folder(
+        token: str,
+        file_id: str,
+        folder_id: str,
+    ) -> Dict[str, Any]:
+        """
+        Removes a file/book from a folder in Google Drive.
+        """
+        url_patch = f"https://www.googleapis.com/drive/v3/files/{file_id}"
+        params = {
+            "removeParents": folder_id,
+            "fields": "id,name,parents",
+        }
+        async with httpx.AsyncClient() as client:
+            resp_patch = await client.patch(
+                url_patch,
+                params=params,
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            if resp_patch.status_code != 200:
+                raise Exception(f"Failed to remove file from directory: {resp_patch.text}")
+            return resp_patch.json()
 
 
 google_drive_service = GoogleDriveService()
