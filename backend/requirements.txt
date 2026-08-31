@@ -17,3 +17,6 @@ aiokafka>=0.11.0
 prometheus-fastapi-instrumentator>=7.0.0
 pdf-inspector
 alembic>=1.14.0
+google-adk>=2.8.0
+google-genai>=2.20.0
+litellm>=1.50.0

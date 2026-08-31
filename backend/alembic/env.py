@@ -53,11 +53,10 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode."""
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
+    from app.configs.db.config import engine as connectable
+
+    if connectable is None:
+        raise RuntimeError("Database engine is not initialized. Check DB credentials.")
 
     with connectable.connect() as connection:
         context.configure(

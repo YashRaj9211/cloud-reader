@@ -1,7 +1,25 @@
-import { Book, BookProgress, SyncData, User } from '../types';
+import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
+import {
+  Book,
+  BookProgress,
+  ChatSessionResponse,
+  CreateSessionRequest,
+  DocumentMarkdownResponse,
+  DocumentProcessingResponse,
+  FolderCreatePayload,
+  FolderDetailResponse,
+  FolderResponse,
+  FolderUpdatePayload,
+  GlobalNoteItem,
+  QueryRequest,
+  QueryResponse,
+  SendMessageResponse,
+  SyncData,
+  User,
+} from '../types';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
-const SESSION_TOKEN_KEY = 'cloud_pdf_session_token';
+export const SESSION_TOKEN_KEY = 'cloud_pdf_session_token';
 
 export function getStoredSessionToken(): string | null {
   try {
@@ -21,56 +39,75 @@ export function setStoredSessionToken(token: string | null): void {
   } catch {}
 }
 
-async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-  const token = getStoredSessionToken();
-  const headers: Record<string, string> = {
-    ...(options.headers as Record<string, string>),
-  };
+export const apiClient = axios.create({
+  baseURL: API_BASE,
+  withCredentials: true,
+});
 
-  if (token && !headers['Authorization']) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-
-  const res = await fetch(`${API_BASE}${endpoint}`, {
-    ...options,
-    credentials: 'include',
-    headers,
-  });
-
-  if (!res.ok) {
-    let errorDetail = 'Request failed';
-    try {
-      const errJson = await res.json();
-      errorDetail = errJson.detail || errJson.message || res.statusText;
-    } catch {
-      errorDetail = await res.text() || res.statusText;
+// Request Interceptor: Attach session token
+apiClient.interceptors.request.use(
+  (config: InternalAxiosRequestConfig) => {
+    const token = getStoredSessionToken();
+    if (token && !config.headers.Authorization) {
+      config.headers.Authorization = `Bearer ${token}`;
     }
-    throw new Error(errorDetail);
-  }
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
 
-  // If response is json, parse it; otherwise return raw text/response if needed
-  const contentType = res.headers.get('content-type');
-  if (contentType && contentType.includes('application/json')) {
-    return res.json() as Promise<T>;
+// Response Interceptor: Catch 401 and trigger global logout (excluding initial auth check)
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error: AxiosError) => {
+    if (error.response?.status === 401) {
+      const url = error.config?.url || '';
+      if (!url.includes('/api/auth/me')) {
+        setStoredSessionToken(null);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('cloud_pdf:auth_expired'));
+        }
+      }
+    }
+    return Promise.reject(error);
   }
-  return res as unknown as T;
+);
+
+// Helper for extracting clean error message
+export function getApiErrorMessage(error: unknown): string {
+  if (axios.isAxiosError(error)) {
+    const data = error.response?.data;
+    if (typeof data === 'string') return data;
+    if (data?.detail) {
+      return typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail);
+    }
+    if (data?.message) return data.message;
+    return error.message || 'Network request failed';
+  }
+  if (error instanceof Error) return error.message;
+  return 'An unexpected error occurred';
 }
 
-// ── Auth API ─────────────────────────────────────────────────────────────────
+// ── Auth & User API ──────────────────────────────────────────────────────────
 
 export async function getGoogleAuthUrl(redirectUri?: string): Promise<string> {
-  const urlParams = redirectUri ? `?redirect_uri=${encodeURIComponent(redirectUri)}` : '';
-  const data = await request<{ url: string }>(`/api/auth/url${urlParams}`);
+  const params = redirectUri ? { redirect_uri: redirectUri } : undefined;
+  const { data } = await apiClient.get<{ url: string }>('/api/auth/url', { params });
   return data.url;
 }
 
 export async function checkAuthSession(): Promise<{ authenticated: boolean; user?: User }> {
   try {
-    const data = await request<{ authenticated: boolean; user?: User }>('/api/auth/me');
+    const { data } = await apiClient.get<{ authenticated: boolean; user?: User }>('/api/auth/me');
     return data;
   } catch {
     return { authenticated: false };
   }
+}
+
+export async function fetchUserProfile(): Promise<User> {
+  const { data } = await apiClient.get<User>('/api/user/me');
+  return data;
 }
 
 export async function loginWithToken(payload: {
@@ -79,32 +116,86 @@ export async function loginWithToken(payload: {
   id_token?: string;
   redirect_uri?: string;
 }): Promise<{ user: User; session_token: string }> {
-  const data = await request<{
+  const { data } = await apiClient.post<{
     authenticated: boolean;
     user: User;
     session_token: string;
     access_token?: string;
-  }>('/api/auth/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
+  }>('/api/auth/token', payload);
 
-  if (data.session_token) {
-    setStoredSessionToken(data.session_token);
-  } else if (data.access_token) {
-    setStoredSessionToken(data.access_token);
+  const token = data.session_token || data.access_token || '';
+  if (token) {
+    setStoredSessionToken(token);
   }
 
-  return { user: data.user, session_token: data.session_token || data.access_token || '' };
+  return { user: data.user, session_token: token };
 }
 
 export async function logoutUser(): Promise<void> {
   try {
-    await request('/api/auth/logout', { method: 'POST' });
+    await apiClient.post('/api/auth/logout');
   } finally {
     setStoredSessionToken(null);
   }
+}
+
+// ── Directories & Folders API ────────────────────────────────────────────────
+
+export async function fetchDirectories(parentId?: string): Promise<FolderResponse[]> {
+  const params = parentId ? { parent_id: parentId } : undefined;
+  const { data } = await apiClient.get<FolderResponse[]>('/api/directories', { params });
+  return data;
+}
+
+export async function createDirectory(payload: FolderCreatePayload): Promise<FolderResponse> {
+  const { data } = await apiClient.post<FolderResponse>('/api/directories', payload);
+  return data;
+}
+
+export async function fetchDirectoryDetails(directoryId: string): Promise<FolderDetailResponse> {
+  const { data } = await apiClient.get<FolderDetailResponse>(`/api/directories/${directoryId}`);
+  return data;
+}
+
+export async function updateDirectory(
+  directoryId: string,
+  payload: FolderUpdatePayload
+): Promise<FolderResponse> {
+  const { data } = await apiClient.patch<FolderResponse>(
+    `/api/directories/${directoryId}`,
+    payload
+  );
+  return data;
+}
+
+export async function deleteDirectory(directoryId: string): Promise<{ message: string }> {
+  const { data } = await apiClient.delete<{ message: string }>(`/api/directories/${directoryId}`);
+  return data;
+}
+
+export async function fetchDirectoryBooks(directoryId: string): Promise<Book[]> {
+  const { data } = await apiClient.get<Book[]>(`/api/directories/${directoryId}/books`);
+  return data;
+}
+
+export async function moveBookToDirectory(
+  directoryId: string,
+  bookId: string
+): Promise<{ message: string }> {
+  const { data } = await apiClient.post<{ message: string }>(
+    `/api/directories/${directoryId}/books/${bookId}`
+  );
+  return data;
+}
+
+export async function removeBookFromDirectory(
+  directoryId: string,
+  bookId: string
+): Promise<{ message: string }> {
+  const { data } = await apiClient.delete<{ message: string }>(
+    `/api/directories/${directoryId}/books/${bookId}`
+  );
+  return data;
 }
 
 // ── Books & Drive API ────────────────────────────────────────────────────────
@@ -114,67 +205,139 @@ export async function fetchLibrary(): Promise<{
   syncData: SyncData;
   syncFileId?: string;
 }> {
-  return request<{
+  const { data } = await apiClient.get<{
     books: Book[];
     syncData: SyncData;
     syncFileId?: string;
   }>('/api/books');
+  return data;
 }
 
 export async function fetchBookBytes(bookId: string): Promise<ArrayBuffer> {
-  const token = getStoredSessionToken();
-  const headers: Record<string, string> = {};
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-
-  const res = await fetch(`${API_BASE}/api/books/${bookId}/content`, {
-    credentials: 'include',
-    headers,
+  const res = await apiClient.get(`/api/books/${bookId}/content`, {
+    responseType: 'arraybuffer',
   });
-
-  if (!res.ok) {
-    throw new Error(`Failed to download PDF document: ${res.statusText}`);
-  }
-
-  return res.arrayBuffer();
+  return res.data;
 }
 
 export async function uploadBookFile(file: File): Promise<Book> {
   const formData = new FormData();
   formData.append('file', file);
 
-  return request<Book>('/api/books/upload', {
-    method: 'POST',
-    body: formData,
+  const { data } = await apiClient.post<Book>('/api/books/upload', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
   });
+  return data;
 }
 
 export async function deleteBookFile(bookId: string): Promise<void> {
-  await request<{ message: string; id: string }>(`/api/books/${bookId}`, {
-    method: 'DELETE',
-  });
+  await apiClient.delete(`/api/books/${bookId}`);
 }
 
 export async function updateBookProgress(
   bookId: string,
   progress: BookProgress
 ): Promise<BookProgress> {
-  return request<BookProgress>(`/api/books/${bookId}/progress`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(progress),
-  });
+  const { data } = await apiClient.patch<BookProgress>(
+    `/api/books/${bookId}/progress`,
+    progress
+  );
+  return data;
 }
 
+// ── Indexing & Markdown API ──────────────────────────────────────────────────
+
+export async function triggerBookIndex(
+  bookId: string
+): Promise<{ status: string; document_id: string; message: string }> {
+  const { data } = await apiClient.post<{ status: string; document_id: string; message: string }>(
+    `/api/books/${bookId}/index`
+  );
+  return data;
+}
+
+export async function fetchBookIndexStatus(bookId: string): Promise<DocumentProcessingResponse> {
+  const { data } = await apiClient.get<DocumentProcessingResponse>(
+    `/api/books/${bookId}/index-status`
+  );
+  return data;
+}
+
+export async function fetchBookMarkdown(bookId: string): Promise<DocumentMarkdownResponse> {
+  const { data } = await apiClient.get<DocumentMarkdownResponse>(
+    `/api/books/${bookId}/markdown`
+  );
+  return data;
+}
+
+// ── AI Chat & Scoped RAG API ─────────────────────────────────────────────────
+
+export async function fetchChatSessions(): Promise<ChatSessionResponse[]> {
+  const { data } = await apiClient.get<ChatSessionResponse[]>('/api/chat/sessions');
+  return data;
+}
+
+export async function createChatSession(
+  payload: CreateSessionRequest
+): Promise<ChatSessionResponse> {
+  const { data } = await apiClient.post<ChatSessionResponse>('/api/chat/sessions', payload);
+  return data;
+}
+
+export async function fetchChatSession(sessionId: string): Promise<ChatSessionResponse> {
+  const { data } = await apiClient.get<ChatSessionResponse>(`/api/chat/sessions/${sessionId}`);
+  return data;
+}
+
+export async function updateChatSession(
+  sessionId: string,
+  title: string
+): Promise<ChatSessionResponse> {
+  const { data } = await apiClient.patch<ChatSessionResponse>(
+    `/api/chat/sessions/${sessionId}`,
+    { title }
+  );
+  return data;
+}
+
+export async function deleteChatSession(sessionId: string): Promise<{ status: string }> {
+  const { data } = await apiClient.delete<{ status: string }>(`/api/chat/sessions/${sessionId}`);
+  return data;
+}
+
+export async function sendChatMessage(
+  sessionId: string,
+  message: string
+): Promise<SendMessageResponse> {
+  const { data } = await apiClient.post<SendMessageResponse>(
+    `/api/chat/sessions/${sessionId}/message`,
+    { message }
+  );
+  return data;
+}
+
+export async function querySemanticSearch(payload: QueryRequest): Promise<QueryResponse> {
+  const { data } = await apiClient.post<QueryResponse>('/api/chat/query', payload);
+  return data;
+}
+
+// ── Sync & Notes API ─────────────────────────────────────────────────────────
+
 export async function fetchSyncData(): Promise<SyncData> {
-  return request<SyncData>('/api/sync');
+  const { data } = await apiClient.get<SyncData>('/api/sync');
+  return data;
 }
 
 export async function saveSyncData(syncData: SyncData): Promise<SyncData> {
-  return request<SyncData>('/api/sync', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(syncData),
-  });
+  const { data } = await apiClient.put<SyncData>('/api/sync', syncData);
+  return data;
+}
+
+export async function fetchGlobalNotes(): Promise<GlobalNoteItem[]> {
+  try {
+    const { data } = await apiClient.get<GlobalNoteItem[]>('/api/notes');
+    return data;
+  } catch {
+    return [];
+  }
 }
