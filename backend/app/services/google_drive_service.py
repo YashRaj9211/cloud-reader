@@ -5,12 +5,15 @@ import httpx
 from app.schemas import SyncData, BookProgress, Book
 
 
+DRIVE_HTTP_TIMEOUT = httpx.Timeout(connect=15.0, read=120.0, write=60.0, pool=15.0)
+
+
 class GoogleDriveService:
     @staticmethod
     async def find_sync_file(token: str) -> Optional[str]:
         search_query = urllib.parse.quote("name = 'cloud_pdf_reader_sync.json' and trashed = false")
         url = f"https://www.googleapis.com/drive/v3/files?q={search_query}&fields=files(id)"
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=DRIVE_HTTP_TIMEOUT) as client:
             resp = await client.get(url, headers={"Authorization": f"Bearer {token}"})
             if resp.status_code != 200:
                 return None
@@ -23,7 +26,7 @@ class GoogleDriveService:
     @staticmethod
     async def download_sync_data(token: str, file_id: str) -> SyncData:
         url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=DRIVE_HTTP_TIMEOUT) as client:
             resp = await client.get(url, headers={"Authorization": f"Bearer {token}"})
             if resp.status_code != 200:
                 raise Exception(f"Failed to download sync metadata: {resp.text}")
@@ -54,7 +57,7 @@ class GoogleDriveService:
         ]
         body = "".join(parts).encode("utf-8")
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=DRIVE_HTTP_TIMEOUT) as client:
             resp = await client.post(
                 "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",
                 headers={
@@ -71,7 +74,7 @@ class GoogleDriveService:
     async def update_sync_file(token: str, file_id: str, sync_data: SyncData) -> None:
         body = json.dumps(sync_data.model_dump()).encode("utf-8")
         url = f"https://www.googleapis.com/upload/drive/v3/files/{file_id}?uploadType=media"
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=DRIVE_HTTP_TIMEOUT) as client:
             resp = await client.patch(
                 url,
                 headers={
@@ -114,7 +117,7 @@ class GoogleDriveService:
             f"&fields=files(id,name,size,createdTime,modifiedTime,parents)"
             f"&orderBy=modifiedTime desc"
         )
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=DRIVE_HTTP_TIMEOUT) as client:
             resp = await client.get(url, headers={"Authorization": f"Bearer {token}"})
             if resp.status_code != 200:
                 raise Exception(f"Failed to fetch file list: {resp.text}")
@@ -124,7 +127,7 @@ class GoogleDriveService:
     @staticmethod
     async def download_pdf_content(token: str, file_id: str) -> bytes:
         url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=DRIVE_HTTP_TIMEOUT) as client:
             resp = await client.get(url, headers={"Authorization": f"Bearer {token}"})
             if resp.status_code != 200:
                 raise Exception(f"Failed to download PDF content: {resp.text}")
@@ -154,7 +157,7 @@ class GoogleDriveService:
         body = meta_part + media_header + file_bytes + media_footer
 
         url = "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart"
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=DRIVE_HTTP_TIMEOUT) as client:
             resp = await client.post(
                 url,
                 headers={
@@ -170,7 +173,7 @@ class GoogleDriveService:
     @staticmethod
     async def delete_file(token: str, file_id: str) -> None:
         url = f"https://www.googleapis.com/drive/v3/files/{file_id}"
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=DRIVE_HTTP_TIMEOUT) as client:
             resp = await client.delete(url, headers={"Authorization": f"Bearer {token}"})
             if resp.status_code not in (200, 204):
                 raise Exception(f"Failed to delete file from Google Drive: {resp.text}")
@@ -198,7 +201,7 @@ class GoogleDriveService:
             f"&fields=files(id,name,parents,createdTime,modifiedTime)"
             f"&orderBy=name"
         )
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=DRIVE_HTTP_TIMEOUT) as client:
             resp = await client.get(url, headers={"Authorization": f"Bearer {token}"})
             if resp.status_code != 200:
                 raise Exception(f"Failed to list directories: {resp.text}")
@@ -214,7 +217,7 @@ class GoogleDriveService:
             f"https://www.googleapis.com/drive/v3/files/{folder_id}"
             f"?fields=id,name,parents,createdTime,modifiedTime"
         )
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=DRIVE_HTTP_TIMEOUT) as client:
             resp = await client.get(url, headers={"Authorization": f"Bearer {token}"})
             if resp.status_code != 200:
                 raise Exception(f"Failed to retrieve directory details: {resp.text}")
@@ -237,7 +240,7 @@ class GoogleDriveService:
             metadata["parents"] = [parent_folder_id]
 
         url = "https://www.googleapis.com/drive/v3/files?fields=id,name,parents,createdTime,modifiedTime"
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=DRIVE_HTTP_TIMEOUT) as client:
             resp = await client.post(
                 url,
                 headers={
@@ -266,7 +269,7 @@ class GoogleDriveService:
             body["name"] = name
 
         url = f"https://www.googleapis.com/drive/v3/files/{folder_id}"
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=DRIVE_HTTP_TIMEOUT) as client:
             if parent_folder_id:
                 # Fetch current parents to remove
                 existing = await GoogleDriveService.get_folder(token, folder_id)
@@ -306,7 +309,7 @@ class GoogleDriveService:
         """
         # Retrieve existing parents to remove
         url_get = f"https://www.googleapis.com/drive/v3/files/{file_id}?fields=parents"
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=DRIVE_HTTP_TIMEOUT) as client:
             resp_get = await client.get(url_get, headers={"Authorization": f"Bearer {token}"})
             prev_parents = ""
             if resp_get.status_code == 200:
@@ -343,7 +346,7 @@ class GoogleDriveService:
             "removeParents": folder_id,
             "fields": "id,name,parents",
         }
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=DRIVE_HTTP_TIMEOUT) as client:
             resp_patch = await client.patch(
                 url_patch,
                 params=params,

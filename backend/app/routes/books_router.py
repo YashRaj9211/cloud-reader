@@ -29,10 +29,11 @@ async def list_books(
 @books_router.get("/{book_id}/content")
 async def get_book_content(
     book_id: str,
-    auth_data: tuple[User, str] = Depends(get_current_user_and_token)
+    auth_data: tuple[User, str] = Depends(get_current_user_and_token),
+    db: Session = Depends(get_db),
 ):
-    """Downloads and streams the PDF file content from Google Drive"""
-    return await get_book_content_controller(book_id=book_id, auth_data=auth_data)
+    """Downloads and streams the PDF file content from Google Drive or local cache"""
+    return await get_book_content_controller(book_id=book_id, auth_data=auth_data, db=db)
 
 
 @books_router.post("/upload", response_model=Book)

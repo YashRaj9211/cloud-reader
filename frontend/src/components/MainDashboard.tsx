@@ -253,116 +253,124 @@ export const MainDashboard: React.FC = () => {
 
           {activeBookBytes ? (
             <div className="w-full h-full flex overflow-hidden">
-              {/* PDF Viewer Portion (shown in pdf or split mode) */}
-              {(viewMode === 'pdf' || viewMode === 'split') && (
-                <div
-                  className={`h-full overflow-hidden ${
-                    viewMode === 'split' ? 'w-1/2 border-r border-stone-200 dark:border-stone-800' : 'w-full'
-                  }`}
-                >
-                  <PDFReader
-                    pdfData={activeBookBytes}
-                    currentPage={activeBookPage}
-                    onChangePage={handleChangePage}
-                    highlights={currentHighlights}
-                    notes={currentNotes}
-                    inkStrokes={currentInkStrokes}
-                    shapes={currentShapes}
-                    textBoxes={currentTextBoxes}
-                    onAddHighlight={(h: any) =>
-                      updateBookStats(activeBookId!, (p) => ({
+              {/* PDF Viewer Portion */}
+              <div
+                className={`h-full overflow-hidden ${
+                  viewMode === 'pdf'
+                    ? 'w-full'
+                    : viewMode === 'split'
+                    ? 'w-1/2 border-r border-stone-200 dark:border-stone-800'
+                    : 'hidden'
+                }`}
+              >
+                <PDFReader
+                  pdfData={activeBookBytes}
+                  currentPage={activeBookPage}
+                  onChangePage={handleChangePage}
+                  highlights={currentHighlights}
+                  notes={currentNotes}
+                  inkStrokes={currentInkStrokes}
+                  shapes={currentShapes}
+                  textBoxes={currentTextBoxes}
+                  onAddHighlight={(h: any) =>
+                    updateBookStats(activeBookId!, (p) => ({
+                      ...p,
+                      highlights: [...p.highlights, h],
+                      lastReadTime: new Date().toISOString(),
+                    }))
+                  }
+                  onDeleteHighlight={(id: string) =>
+                    updateBookStats(activeBookId!, (p) => ({
+                      ...p,
+                      highlights: p.highlights.filter((h) => h.id !== id),
+                      lastReadTime: new Date().toISOString(),
+                    }))
+                  }
+                  onAddNote={(n: any) =>
+                    updateBookStats(activeBookId!, (p) => ({
+                      ...p,
+                      notes: [...p.notes, n],
+                      lastReadTime: new Date().toISOString(),
+                    }))
+                  }
+                  onDeleteNote={(id: string) =>
+                    updateBookStats(activeBookId!, (p) => ({
+                      ...p,
+                      notes: p.notes.filter((n) => n.id !== id),
+                      lastReadTime: new Date().toISOString(),
+                    }))
+                  }
+                  onAddInkStroke={(s: any) =>
+                    updateBookStats(activeBookId!, (p) => ({
+                      ...p,
+                      inkStrokes: [...p.inkStrokes, s],
+                      lastReadTime: new Date().toISOString(),
+                    }))
+                  }
+                  onDeleteInkStroke={(id: string) =>
+                    updateBookStats(activeBookId!, (p) => ({
+                      ...p,
+                      inkStrokes: p.inkStrokes.filter((s) => s.id !== id),
+                      lastReadTime: new Date().toISOString(),
+                    }))
+                  }
+                  onAddShape={(s: any) =>
+                    updateBookStats(activeBookId!, (p) => ({
+                      ...p,
+                      shapes: [...p.shapes, s],
+                      lastReadTime: new Date().toISOString(),
+                    }))
+                  }
+                  onDeleteShape={(id: string) =>
+                    updateBookStats(activeBookId!, (p) => ({
+                      ...p,
+                      shapes: p.shapes.filter((s) => s.id !== id),
+                      lastReadTime: new Date().toISOString(),
+                    }))
+                  }
+                  onAddTextBox={(t: any) =>
+                    updateBookStats(activeBookId!, (p) => ({
+                      ...p,
+                      textBoxes: [...p.textBoxes, t],
+                      lastReadTime: new Date().toISOString(),
+                    }))
+                  }
+                  onDeleteTextBox={(id: string) =>
+                    updateBookStats(activeBookId!, (p) => ({
+                      ...p,
+                      textBoxes: p.textBoxes.filter((t) => t.id !== id),
+                      lastReadTime: new Date().toISOString(),
+                    }))
+                  }
+                  onDocumentLoad={(totalPages: number) => {
+                    if (activeBookId) {
+                      updateBookStats(activeBookId, (p) => ({
                         ...p,
-                        highlights: [...p.highlights, h],
-                        lastReadTime: new Date().toISOString(),
-                      }))
+                        totalPages,
+                      }));
                     }
-                    onDeleteHighlight={(id: string) =>
-                      updateBookStats(activeBookId!, (p) => ({
-                        ...p,
-                        highlights: p.highlights.filter((h) => h.id !== id),
-                        lastReadTime: new Date().toISOString(),
-                      }))
-                    }
-                    onAddNote={(n: any) =>
-                      updateBookStats(activeBookId!, (p) => ({
-                        ...p,
-                        notes: [...p.notes, n],
-                        lastReadTime: new Date().toISOString(),
-                      }))
-                    }
-                    onDeleteNote={(id: string) =>
-                      updateBookStats(activeBookId!, (p) => ({
-                        ...p,
-                        notes: p.notes.filter((n) => n.id !== id),
-                        lastReadTime: new Date().toISOString(),
-                      }))
-                    }
-                    onAddInkStroke={(s: any) =>
-                      updateBookStats(activeBookId!, (p) => ({
-                        ...p,
-                        inkStrokes: [...p.inkStrokes, s],
-                        lastReadTime: new Date().toISOString(),
-                      }))
-                    }
-                    onDeleteInkStroke={(id: string) =>
-                      updateBookStats(activeBookId!, (p) => ({
-                        ...p,
-                        inkStrokes: p.inkStrokes.filter((s) => s.id !== id),
-                        lastReadTime: new Date().toISOString(),
-                      }))
-                    }
-                    onAddShape={(s: any) =>
-                      updateBookStats(activeBookId!, (p) => ({
-                        ...p,
-                        shapes: [...p.shapes, s],
-                        lastReadTime: new Date().toISOString(),
-                      }))
-                    }
-                    onDeleteShape={(id: string) =>
-                      updateBookStats(activeBookId!, (p) => ({
-                        ...p,
-                        shapes: p.shapes.filter((s) => s.id !== id),
-                        lastReadTime: new Date().toISOString(),
-                      }))
-                    }
-                    onAddTextBox={(t: any) =>
-                      updateBookStats(activeBookId!, (p) => ({
-                        ...p,
-                        textBoxes: [...p.textBoxes, t],
-                        lastReadTime: new Date().toISOString(),
-                      }))
-                    }
-                    onDeleteTextBox={(id: string) =>
-                      updateBookStats(activeBookId!, (p) => ({
-                        ...p,
-                        textBoxes: p.textBoxes.filter((t) => t.id !== id),
-                        lastReadTime: new Date().toISOString(),
-                      }))
-                    }
-                    onDocumentLoad={(totalPages: number) => {
-                      if (activeBookId) {
-                        updateBookStats(activeBookId, (p) => ({
-                          ...p,
-                          totalPages,
-                        }));
-                      }
-                    }}
-                    darkMode={darkMode}
-                  />
-                </div>
-              )}
+                  }}
+                  darkMode={darkMode}
+                />
+              </div>
 
-              {/* Markdown Portion (shown in markdown or split mode) */}
-              {(viewMode === 'markdown' || viewMode === 'split') && (
-                <div className={`h-full ${viewMode === 'split' ? 'w-1/2' : 'w-full'}`}>
-                  <MarkdownReader
-                    markdown={activeMarkdown}
-                    isLoading={loadingMarkdown}
-                    bookTitle={currentBook?.name}
-                    onStartIndexing={() => activeBookId && startIndexing(activeBookId)}
-                  />
-                </div>
-              )}
+              {/* Markdown Portion */}
+              <div
+                className={`h-full ${
+                  viewMode === 'markdown'
+                    ? 'w-full'
+                    : viewMode === 'split'
+                    ? 'w-1/2'
+                    : 'hidden'
+                }`}
+              >
+                <MarkdownReader
+                  markdown={activeMarkdown}
+                  isLoading={loadingMarkdown}
+                  bookTitle={currentBook?.name}
+                  onStartIndexing={() => activeBookId && startIndexing(activeBookId)}
+                />
+              </div>
             </div>
           ) : (
             <div className="w-full h-full flex flex-col items-center justify-center p-6 sm:p-8 text-center max-w-md mx-auto">

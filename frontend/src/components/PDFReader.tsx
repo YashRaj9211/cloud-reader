@@ -122,17 +122,28 @@ export default function PDFReader({
 
   // ─── Load PDF ────────────────────────────────────────────────────────────
   useEffect(() => {
+    if (!pdfData || pdfData.byteLength === 0) return;
     setLoading(true);
+
+    // Clone the underlying ArrayBuffer slice so PDF.js Web Worker postMessage transfer doesn't detach/neuter store bytes
+    const clonedData = new Uint8Array(pdfData.slice(0));
     const task = pdfjsLib.getDocument({
-      data: pdfData,
+      data: clonedData,
       verbosity: 0,
       cMapUrl: '/pdfjs-cmaps/',
       cMapPacked: true,
       standardFontDataUrl: '/pdfjs-standard-fonts/',
       wasmUrl: '/pdfjs-wasm/',
     });
+
+    let isCancelled = false;
+
     task.promise.then(
       (doc) => {
+        if (isCancelled) {
+          doc.destroy();
+          return;
+        }
         setPdf(doc);
         setTotalPages(doc.numPages);
         setLoading(false);
@@ -142,10 +153,17 @@ export default function PDFReader({
         if (currentPage > doc.numPages) onChangePage(1);
       },
       (err) => {
-        console.error('PDF load error:', err);
-        setLoading(false);
+        if (!isCancelled) {
+          console.error('PDF load error:', err);
+          setLoading(false);
+        }
       }
     );
+
+    return () => {
+      isCancelled = true;
+      task.destroy().catch(() => {});
+    };
   }, [pdfData]);
 
   // ─── Container resize observer ───────────────────────────────────────────
@@ -191,34 +209,42 @@ export default function PDFReader({
     if (!isContinuous || !containerRef.current) return;
 
     const container = containerRef.current;
+    let ticking = false;
+
     const handleScroll = () => {
       if (isScrollingProgrammatically.current) return;
+      if (!ticking) {
+        window.requestAnimationFrame(() => {
+          ticking = false;
+          if (!container) return;
 
-      const pageElements = container.querySelectorAll<HTMLElement>('.pdf-page-container');
-      if (!pageElements.length) return;
+          const pageElements = container.querySelectorAll<HTMLElement>('.pdf-page-container');
+          if (!pageElements.length) return;
 
-      const containerRect = container.getBoundingClientRect();
-      const containerMid = containerRect.top + containerRect.height / 3;
+          const containerRect = container.getBoundingClientRect();
+          const containerMid = containerRect.top + containerRect.height / 3;
 
-      let currentBestPage = currentPage;
-      let minDistance = Infinity;
+          let currentBestPage = currentPage;
+          let minDistance = Infinity;
 
-      pageElements.forEach((el) => {
-        const pageNum = parseInt(el.dataset.pageNumber || '1', 10);
-        const rect = el.getBoundingClientRect();
+          pageElements.forEach((el) => {
+            const pageNum = parseInt(el.dataset.pageNumber || '1', 10);
+            const rect = el.getBoundingClientRect();
 
-        // Calculate distance from page top to viewport target reading line
-        const distance = Math.abs(rect.top - containerMid);
-        if (rect.bottom > containerRect.top && rect.top < containerRect.bottom) {
-          if (distance < minDistance) {
-            minDistance = distance;
-            currentBestPage = pageNum;
+            const distance = Math.abs(rect.top - containerMid);
+            if (rect.bottom > containerRect.top && rect.top < containerRect.bottom) {
+              if (distance < minDistance) {
+                minDistance = distance;
+                currentBestPage = pageNum;
+              }
+            }
+          });
+
+          if (currentBestPage !== currentPage && currentBestPage >= 1 && currentBestPage <= totalPages) {
+            onChangePage(currentBestPage);
           }
-        }
-      });
-
-      if (currentBestPage !== currentPage && currentBestPage >= 1 && currentBestPage <= totalPages) {
-        onChangePage(currentBestPage);
+        });
+        ticking = true;
       }
     };
 
@@ -236,7 +262,17 @@ export default function PDFReader({
       isScrollingProgrammatically.current = true;
       if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
 
-      targetEl.scrollIntoView({ behavior, block: 'start' });
+      // Avoid scrollIntoView which aggressively scrolls all overflow-hidden ancestors
+      const containerTop = containerRef.current.scrollTop;
+      const containerRect = containerRef.current.getBoundingClientRect();
+      const targetRect = targetEl.getBoundingClientRect();
+      
+      const targetScrollTop = containerTop + (targetRect.top - containerRect.top);
+
+      containerRef.current.scrollTo({
+        top: targetScrollTop - 16, // small padding
+        behavior
+      });
 
       scrollTimeoutRef.current = setTimeout(() => {
         isScrollingProgrammatically.current = false;
@@ -569,12 +605,11 @@ export default function PDFReader({
           {!loading && pdf && (
             <div className="w-full flex flex-col items-center min-h-full">
               {isContinuous ? (
-                // ── Continuous Scroll: Virtualized Windowing (±6 pages around current) to support 1000+ page PDFs seamlessly ──
-                Array.from({ length: totalPages }, (_, i) => i + 1)
-                  .filter((pageNum) => Math.abs(pageNum - currentPage) <= 8)
-                  .map((pageNum) => (
-                    <PDFPageItem
+                // ── Continuous Scroll: All pages mounted in DOM with IntersectionObserver lazy canvas rendering ──
+                Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => (
+                  <PDFPageItem
                       key={pageNum}
+                      scrollContainer={containerRef.current}
                       pdf={pdf}
                       pageNum={pageNum}
                       zoom={zoom}
@@ -609,6 +644,7 @@ export default function PDFReader({
                 // ── Single Page Mode ──
                 <PDFPageItem
                   key={currentPage}
+                  scrollContainer={containerRef.current}
                   pdf={pdf}
                   pageNum={currentPage}
                   zoom={zoom}

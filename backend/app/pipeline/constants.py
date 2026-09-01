@@ -29,7 +29,7 @@ GROUP_STORE = "pdf-store-group"
 GROUP_DLQ = "pdf-dlq-group"
 
 # Processing configuration
-CHUNK_BATCH_SIZE = 50          # Number of chunks per Kafka message to avoid oversized payloads
-EMBEDDING_BATCH_SIZE = 25      # Batch size passed to NVIDIA embedding endpoint
+CHUNK_BATCH_SIZE = 20          # Number of chunks per Kafka message to avoid oversized payloads
+EMBEDDING_BATCH_SIZE = 20      # Batch size passed to NVIDIA embedding endpoint
 DEFAULT_CHUNK_SIZE = 1000      # Target character length per text chunk
 DEFAULT_CHUNK_OVERLAP = 150    # Character overlap between adjacent chunks

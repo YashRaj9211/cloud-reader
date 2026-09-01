@@ -157,6 +157,7 @@ export interface AppState {
 
 // Re-entrancy guard for auth initialization
 let isAuthInitializing = false;
+let saveDebounceTimer: any = null;
 
 // Global auth expired listener
 if (typeof window !== 'undefined') {
@@ -447,15 +448,20 @@ export const useAppStore = create<AppState>((set, get) => ({
       ...get().syncData,
       books: { ...get().syncData.books, [bookId]: next },
     };
-    set({ syncData: updatedSyncData, isSaving: true });
+    set({ syncData: updatedSyncData });
 
-    try {
-      await updateBookProgress(bookId, next);
-    } catch (err) {
-      console.error('Annotation sync failed:', err);
-    } finally {
-      set({ isSaving: false });
-    }
+    // Debounce network sync so continuous scrolling does not storm the backend or trigger rerender cascades
+    if (saveDebounceTimer) clearTimeout(saveDebounceTimer);
+    saveDebounceTimer = setTimeout(async () => {
+      set({ isSaving: true });
+      try {
+        await updateBookProgress(bookId, next);
+      } catch (err) {
+        console.error('Annotation sync failed:', err);
+      } finally {
+        set({ isSaving: false });
+      }
+    }, 600);
   },
 
   loadBookMarkdown: async (bookId: string) => {

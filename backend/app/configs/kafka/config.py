@@ -40,7 +40,8 @@ async def get_kafka_producer() -> AIOKafkaProducer:
             raise RuntimeError("aiokafka is not installed or available.")
         _producer = AIOKafkaProducer(
             bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
-            value_serializer=lambda v: json.dumps(v).encode("utf-8")
+            value_serializer=lambda v: json.dumps(v).encode("utf-8"),
+            max_request_size=20971520,  # 20MB to support large embedding payload vectors
         )
         await _producer.start()
     return _producer
@@ -72,5 +73,6 @@ def create_kafka_consumer(
         group_id=group_id,
         auto_offset_reset=auto_offset_reset,
         enable_auto_commit=True,
+        max_partition_fetch_bytes=20971520,  # 20MB fetch capacity
         value_deserializer=lambda v: json.loads(v.decode("utf-8"))
     )

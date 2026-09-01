@@ -64,13 +64,59 @@ async def list_books_controller(auth_data: tuple[User, str]) -> LibraryResponse:
         )
 
 
-async def get_book_content_controller(book_id: str, auth_data: tuple[User, str]) -> Response:
+async def get_book_content_controller(
+    book_id: str,
+    auth_data: tuple[User, str],
+    db: Optional[Session] = None,
+) -> Response:
     """
-    Downloads and streams the PDF file content from Google Drive.
+    Downloads and streams the PDF file content from Google Drive or cached local storage.
+    Supports both Google Drive file IDs and internal Document UUIDs.
     """
-    _, token = auth_data
+    schema_user, token = auth_data
+    from app.services.document_storage_service import document_storage_service
+
     try:
-        content = await google_drive_service.download_pdf_content(token, book_id)
+        drive_file_id = book_id
+        doc_id = None
+        user_id = None
+
+        if db is not None:
+            try:
+                db_user = _get_or_create_db_user(db, schema_user)
+                user_id = db_user.id
+                doc = db.query(Document).filter(
+                    (Document.id == book_id) | (Document.google_drive_file_id == book_id),
+                    Document.user_id == db_user.id
+                ).first()
+
+                if doc:
+                    doc_id = doc.id
+                    drive_file_id = doc.google_drive_file_id or book_id
+
+                    # Check if cached locally in document storage
+                    if document_storage_service.has_pdf(user_id, doc_id):
+                        local_bytes = document_storage_service.read_pdf(user_id, doc_id)
+                        if local_bytes:
+                            return Response(
+                                content=local_bytes,
+                                media_type="application/pdf",
+                                headers={"Content-Disposition": f'inline; filename="{doc.filename or book_id}.pdf"'}
+                            )
+            except Exception as dbe:
+                # Fallback to direct drive download if DB query encounters an issue
+                pass
+
+        # Download from Google Drive using resolved drive file ID
+        content = await google_drive_service.download_pdf_content(token, drive_file_id)
+
+        # Cache locally if document record was found
+        if user_id and doc_id:
+            try:
+                document_storage_service.save_pdf(user_id, doc_id, content)
+            except Exception:
+                pass
+
         return Response(
             content=content,
             media_type="application/pdf",
