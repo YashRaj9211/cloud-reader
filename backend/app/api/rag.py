@@ -69,6 +69,15 @@ async def get_rag_status(
     if not status_record:
         raise HTTPException(status_code=404, detail="RAG status not found for this book.")
         
+    # Verify vector store integrity if status claims completed
+    if status_record.status == IndexStatus.COMPLETED:
+        from app.services.chroma_service import count_book_chunks
+        chunk_count = count_book_chunks(book_id)
+        if chunk_count == 0:
+            status_record.status = IndexStatus.FAILED
+            status_record.error_message = "Vector index is missing from database. Please click Re-index."
+            await db.commit()
+
     return RagStatusResponse(
         book_id=status_record.book_id,
         status=status_record.status.value,
@@ -76,6 +85,7 @@ async def get_rag_status(
         error_message=status_record.error_message,
         updated_at=status_record.updated_at.isoformat() if status_record.updated_at else None
     )
+
 
 
 @router.post("/rag/{book_id}/chat")

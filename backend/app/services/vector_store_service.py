@@ -115,6 +115,33 @@ class VectorStoreService:
             logger.error("Error deleting chunks for user_id=%s: %s", user_id, e)
             raise
 
+    def count_chunks_for_document(self, document_id: str, user_id: str) -> int:
+        """
+        Returns the number of chunks present in ChromaDB for a specific document and user.
+        Returns 0 if no chunks exist or if ChromaDB is unreachable.
+        """
+        try:
+            col = self.collection
+            where = {
+                "$and": [
+                    {"user_id": {"$eq": user_id}},
+                    {"document_id": {"$eq": document_id}},
+                ]
+            }
+            res = col.get(where=where, include=[])
+            if res and "ids" in res:
+                return len(res["ids"])
+            return 0
+        except Exception as e:
+            logger.warning("Failed to count chunks in ChromaDB for document_id=%s, user_id=%s: %s", document_id, user_id, e)
+            return 0
+
+    def has_chunks_for_document(self, document_id: str, user_id: str) -> bool:
+        """
+        Checks whether at least one chunk exists in ChromaDB for the given document and user.
+        """
+        return self.count_chunks_for_document(document_id, user_id) > 0
+
     def search(
         self,
         query_embedding: List[float],
@@ -156,3 +183,4 @@ class VectorStoreService:
 
 
 vector_store_service = VectorStoreService()
+

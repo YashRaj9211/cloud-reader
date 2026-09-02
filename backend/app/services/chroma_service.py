@@ -63,3 +63,17 @@ def query_collection(book_id: str, query_embedding: list[float], top_k: int = 10
         })
         
     return chunks
+
+
+def count_book_chunks(book_id: str) -> int:
+    """Returns the number of indexed chunks for a book in ChromaDB, or 0 if empty or unreachable."""
+    try:
+        collection = get_book_collection(book_id)
+        return collection.count()
+    except Exception:
+        return 0
+
+
+def has_book_chunks(book_id: str) -> bool:
+    """Checks whether the book collection in ChromaDB has at least one indexed chunk."""
+    return count_book_chunks(book_id) > 0

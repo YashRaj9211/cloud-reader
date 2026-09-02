@@ -299,13 +299,28 @@ export default function BookAIPanel({ bookId, bookName, darkMode, onClose }: Boo
           {statusLoading
             ? <Loader2 size={11} className="animate-spin text-zinc-400" />
             : ragStatus
-              ? <StatusBadge status={ragStatus.status} />
+              ? (
+                <div className="flex items-center gap-1.5">
+                  <StatusBadge status={ragStatus.status} />
+                  {ragStatus.status === 'completed' && (
+                    <button
+                      onClick={handleIndex}
+                      disabled={indexing}
+                      title="Re-index book content into vector database"
+                      className="p-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-[#9061ff] transition-colors"
+                    >
+                      <RefreshCw size={11} className={indexing ? 'animate-spin text-[#9061ff]' : ''} />
+                    </button>
+                  )}
+                </div>
+              )
               : <span className="text-[10px] font-mono text-zinc-400">Not indexed</span>
           }
           <button onClick={onClose} className="btn-secondary !h-7 !w-7 !p-0 text-zinc-400">
             <X size={14} />
           </button>
         </div>
+
       </div>
 
       {/* ── Index prompt ── */}

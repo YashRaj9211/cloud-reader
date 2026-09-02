@@ -397,7 +397,29 @@ async def get_book_index_status_controller(
             error_message=None,
         )
 
+    # Health & Integrity check:
+    # If the database record indicates INDEXED, verify vector store actually has the chunks
+    if proc_rec.status == DocumentStatus.INDEXED or doc.status == DocumentStatus.INDEXED:
+        chunk_count = vector_store_service.count_chunks_for_document(document_id=doc.id, user_id=db_user.id)
+        if chunk_count == 0:
+            # Index is missing from ChromaDB (e.g. docker container recreated or wiped)
+            proc_rec.status = DocumentStatus.FAILED
+            proc_rec.error_message = "Vector index is missing from database. Please click Re-index."
+            proc_rec.processed_chunks = 0
+            doc.status = DocumentStatus.FAILED
+            try:
+                db.commit()
+            except Exception:
+                db.rollback()
+        elif proc_rec.processed_chunks != chunk_count:
+            proc_rec.processed_chunks = chunk_count
+            try:
+                db.commit()
+            except Exception:
+                db.rollback()
+
     return DocumentProcessingResponse.model_validate(proc_rec)
+
 
 
 async def get_book_markdown_controller(
