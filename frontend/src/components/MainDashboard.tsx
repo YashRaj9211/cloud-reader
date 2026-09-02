@@ -378,17 +378,17 @@ export const MainDashboard: React.FC = () => {
                 <BookOpen size={36} />
               </div>
               <h3 className="text-base font-semibold mb-1.5 text-stone-900 dark:text-stone-100">
-                Welcome to Cloud PDF Reader
+                Welcome to CloudReader
               </h3>
               <p className="text-xs text-stone-500 dark:text-stone-400 leading-relaxed mb-5">
-                Select a document from your Google Drive library, or upload a research paper to start reading and chatting with AI.
+                Select a document from your library, or upload a PDF to start reading, taking smart notes, and chatting with AI.
               </p>
               <Button onClick={() => setSidebarOpen(true)} className="mb-4">
                 Open Library
               </Button>
               <div className="p-3 bg-[#fa5d19]/5 rounded-xl border border-[#fa5d19]/15 text-[11px] text-stone-600 dark:text-stone-400 leading-relaxed text-left">
                 <Sparkles size={13} className="text-[#fa5d19] inline mr-1" />
-                Featuring Google ADK RAG Assistant, ChromaDB semantic vector search (⌘K), and instant page citations.
+                Featuring AI Research Assistant, intelligent vector search (⌘K), and instant page citations.
               </div>
             </div>
           )}

@@ -157,7 +157,7 @@ export const ChatDrawer: React.FC = () => {
                 )}
               </div>
               <p className="text-[11px] text-stone-500 dark:text-stone-400 truncate">
-                Grounded on ChromaDB vector index
+                Grounded research assistant
               </p>
             </div>
           </div>

@@ -196,7 +196,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = ({
             <span className="w-1.5 h-1.5 rounded-full bg-[#fa5d19] animate-bounce" />
             <span className="w-1.5 h-1.5 rounded-full bg-[#fa5d19] animate-bounce [animation-delay:0.2s]" />
             <span className="w-1.5 h-1.5 rounded-full bg-[#fa5d19] animate-bounce [animation-delay:0.4s]" />
-            <span className="ml-1 text-xs text-stone-500 font-mono">Thinking with ADK RAG...</span>
+            <span className="ml-1 text-xs text-stone-500 font-mono">Analyzing with AI Assistant...</span>
           </div>
         </div>
       )}
