@@ -84,3 +84,8 @@ Thumbs.db
 # Project-specific / Temporary
 *.log
 .fallow/
+*.zip
+
+# Backend storage / uploaded documents
+backend/storage/
+storage/
