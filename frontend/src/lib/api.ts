@@ -389,11 +389,11 @@ export async function processBook(bookId: string): Promise<{ book_id: string; ta
 export async function getRagStatus(bookId: string): Promise<RagStatus> {
   const { data } = await apiClient.get<DocumentProcessingResponse>(`/api/books/${bookId}/index-status`);
   return {
-    book_id: data.book_id,
+    book_id: data.document_id || bookId,
     status: data.status as any,
     total_chunks: data.total_chunks,
-    error_message: data.error_message,
-    updated_at: data.updated_at,
+    error_message: data.error_message || undefined,
+    updated_at: data.completed_at || data.started_at || undefined,
   };
 }
 
