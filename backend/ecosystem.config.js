@@ -1,22 +1,17 @@
 module.exports = {
-  apps : [{
-    script: 'index.js',
-    watch: '.'
-  }, {
-    script: './service-worker/',
-    watch: ['./service-worker']
-  }],
-
-  deploy : {
-    production : {
-      user : 'yash',
-      host : '[IP_ADDRESS]',
-      ref  : 'origin/main',
-      repo : 'https://github.com/YashRaj9211/cloud-reader.git',
-      path : '',
-      'pre-deploy-local': '',
-      'post-deploy' : 'npm install && pm2 reload ecosystem.config.js --env production',
-      'pre-setup': ''
+  apps: [
+    {
+      name: "pdf-backend-api",
+      script: ".venv/Scripts/uvicorn.exe",
+      args: "app.main:app --host 0.0.0.0 --port 8000 --reload",
+      cwd: "./",
+      interpreter: "none",
+      watch: false,
+      autorestart: true,
+      env: {
+        PYTHONUNBUFFERED: "1",
+        ENABLE_IN_APP_PIPELINE_WORKERS: "true"
+      }
     }
-  }
+  ]
 };
