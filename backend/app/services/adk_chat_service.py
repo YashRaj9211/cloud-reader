@@ -132,7 +132,7 @@ def retrieve_document_context(query: str, tool_context: ToolContext) -> dict:
 
 def create_lite_llm_model() -> LiteLlm:
     """Configures the LiteLlm model client based on environment settings."""
-    model_name = os.getenv("LLM_MODEL") or LLM_MODEL or "nvidia/nemotron-3-super-120b-a12b"
+    model_name = os.getenv("LLM_MODEL") or LLM_MODEL or "nvidia/nemotron-3-ultra-550b-a55b"
     api_base = os.getenv("LLM_URL") or LLM_URL or "https://integrate.api.nvidia.com/v1"
     api_key = os.getenv("LLM_KEY") or os.getenv("NVIDIA_API_KEY") or NVIDIA_API_KEY or ""
 
@@ -145,6 +145,8 @@ def create_lite_llm_model() -> LiteLlm:
     # Custom provider for OpenAI-compatible endpoints like NVIDIA NIM
     if api_base and "integrate.api.nvidia.com" in api_base:
         kwargs["custom_llm_provider"] = "openai"
+        if not model_name.startswith("openai/"):
+            model_name = f"openai/{model_name}"
 
     return LiteLlm(model=model_name, **kwargs)
 

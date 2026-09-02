@@ -16,11 +16,25 @@ TOKEN_STORAGE_COOKIE = "cloud_pdf_session"
 
 # NVIDIA AI & Embeddings
 NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "")
-LLM_MODEL = os.getenv("LLM_MODEL", "nvidia/nemotron-3-ultra-550b-a55b")
-LLM_URL = os.getenv("LLM_URL", "https://integrate.api.nvidia.com/v1")
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "nvidia/nemotron-3-embed-1b")
+LLM_MODEL = os.getenv("LLM_MODEL") or os.getenv("NVIDIA_LLM_MODEL", "nvidia/nemotron-3-ultra-550b-a55b")
+LLM_URL = os.getenv("LLM_URL") or os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL") or os.getenv("NVIDIA_EMBED_MODEL", "nvidia/nemotron-3-embed-1b")
 EMBEDDING_URL = os.getenv("EMBEDDING_URL", "https://integrate.api.nvidia.com/v1")
 EMBEDDING_KEY = os.getenv("EMBEDDING_KEY", NVIDIA_API_KEY)
+
+# Aliases for compatibility
+NVIDIA_BASE_URL = LLM_URL
+NVIDIA_LLM_MODEL = LLM_MODEL
+NVIDIA_EMBED_MODEL = EMBEDDING_MODEL
+
+# Reranking & Tuning
+RERANK_API_KEY = os.getenv("RERANK_API_KEY", NVIDIA_API_KEY)
+RERANK_MODEL = os.getenv("RERANK_MODEL", "nvidia/llama-nemotron-rerank-vl-1b-v2")
+RERANK_INVOKE_URL = os.getenv("RERANK_INVOKE_URL", "https://ai.api.nvidia.com/v1/retrieval/nvidia/llama-nemotron-rerank-vl-1b-v2/reranking")
+CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "1500"))
+CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "400"))
+RAG_TOP_K = int(os.getenv("RAG_TOP_K", "10"))
+RAG_RERANK_TOP_N = int(os.getenv("RAG_RERANK_TOP_N", "5"))
 
 # Service Configs from app.configs
 from app.configs import (
