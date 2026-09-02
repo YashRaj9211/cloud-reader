@@ -134,7 +134,7 @@ export default function ThumbnailSidebar({
   }, [currentPage]);
 
   return (
-    <div 
+    <div
       ref={containerRef}
       className="w-24 flex-shrink-0 flex flex-col border-r border-[var(--color-outline-variant)] bg-[var(--color-surface)] overflow-y-auto transition-colors duration-300 custom-scrollbar"
     >

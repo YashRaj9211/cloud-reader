@@ -6,27 +6,19 @@ python-multipart>=0.0.12
 python-dotenv>=1.0.1
 pyjwt>=2.9.0
 itsdangerous>=2.2.0
+langchain-text-splitters>=0.3.0
+langchain-nvidia-ai-endpoints
+chromadb>=0.5.0
+redis>=5.0.0
+sqlalchemy>=2.0.0
+asyncpg>=0.29.0
+psycopg2-binary>=2.9.9
+aiokafka>=0.11.0
+prometheus-fastapi-instrumentator>=7.0.0
 pdf-inspector>=0.2.6
 pypdfium2>=4.30.0
-onnxruntime>=1.19.0
-
-# --- RAG Stack ---
-# Task Queue
-celery[redis]>=5.4.0
-redis>=5.0.0
-
-# Vector DB
-chromadb>=0.5.0
-
-# Text chunking
-langchain-text-splitters>=0.3.0
-
-# Database (NeonDB / PostgreSQL)
-asyncpg>=0.29.0
-sqlalchemy[asyncio]>=2.0.0
-
-# LLM / NVIDIA cloud
-openai>=1.50.0
-
-# Utilities
+alembic>=1.14.0
+google-adk>=2.8.0
+google-genai>=2.20.0
+litellm>=1.50.0
 tenacity>=8.5.0

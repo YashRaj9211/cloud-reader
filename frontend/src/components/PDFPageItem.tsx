@@ -47,6 +47,7 @@ interface PDFPageItemProps extends AnnotationData, AnnotationHandlers {
   selectedShapeId: string | null;
   onSelectShapeId: (id: string | null) => void;
   onSelectNote: (note: StickyNote | null) => void;
+  scrollContainer?: HTMLElement | null;
 }
 
 function pxToPercent(val: number, total: number) {
@@ -82,6 +83,7 @@ export default function PDFPageItem({
   selectedShapeId,
   onSelectShapeId,
   onSelectNote,
+  scrollContainer,
 }: PDFPageItemProps) {
   const pageContainerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -91,6 +93,9 @@ export default function PDFPageItem({
 
   const [isVisible, setIsVisible] = useState(false);
   const [pageSize, setPageSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
+  // Track whether this page has EVER been rendered. Once true, never show the
+  // loading skeleton again — a stale canvas is far better than a blank block.
+  const hasEverRendered = useRef(false);
   const [rendered, setRendered] = useState(false);
 
   // Drawing state
@@ -114,6 +119,9 @@ export default function PDFPageItem({
   const [activeTextBox, setActiveTextBox] = useState<{ x: number; y: number; text: string } | null>(null);
 
   // 1. Intersection Observer for lazy rendering
+  // Use a very large margin so pages are preloaded well before they scroll into
+  // view, and their canvases are kept alive long after they scroll out. This
+  // prevents users from seeing blank blocks when scrolling quickly.
   useEffect(() => {
     const el = pageContainerRef.current;
     if (!el) return;
@@ -123,7 +131,7 @@ export default function PDFPageItem({
         setIsVisible(entry.isIntersecting);
       },
       {
-        rootMargin: '600px 0px', // Pre-load 600px before appearing
+        rootMargin: '3000px 0px',
       }
     );
 
@@ -192,6 +200,7 @@ export default function PDFPageItem({
       renderTask = page.render({ canvasContext: ctx, viewport: renderVp });
       renderTask.promise.then(() => {
         if (!isCancelled) {
+          hasEverRendered.current = true;
           setRendered(true);
           setPageSize({ w: cssW, h: cssH });
         }
@@ -205,14 +214,10 @@ export default function PDFPageItem({
     return () => {
       isCancelled = true;
       if (renderTask) renderTask.cancel();
-      if (canvasRef.current) {
-        canvasRef.current.width = 0;
-        canvasRef.current.height = 0;
-      }
-      if (inkCanvasRef.current) {
-        inkCanvasRef.current.width = 0;
-        inkCanvasRef.current.height = 0;
-      }
+      // Do NOT reset rendered or zero canvas dimensions here.
+      // Keeping the stale canvas visible prevents blank blocks from appearing
+      // while the page is being re-rendered after scrolling back into view.
+      // The canvas will simply be overwritten on the next successful render.
     };
   }, [pdf, pageNum, zoom, containerWidth, isVisible]);
 
@@ -642,8 +647,8 @@ export default function PDFPageItem({
           minHeight: 400,
         }}
       >
-        {/* Placeholder skeleton if not rendered yet */}
-        {!rendered && (
+        {/* Placeholder skeleton — only shown on first load, never after re-renders */}
+        {!rendered && !hasEverRendered.current && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-zinc-100 dark:bg-zinc-900/60 animate-pulse text-zinc-400">
             <span className="text-xs font-mono">Loading page {pageNum}…</span>
           </div>

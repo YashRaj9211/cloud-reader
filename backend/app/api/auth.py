@@ -1,10 +1,12 @@
+import time
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import RedirectResponse
 from app.config import FRONTEND_URL, TOKEN_STORAGE_COOKIE
 from app.schemas import AuthStatus, GoogleTokenRequest, User
 from app.services.google_auth_service import google_auth_service
-from app.services.session import get_current_user_and_token, get_current_user
+from app.services.session import get_current_user_and_token
+from app.services.session_store import session_store
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -20,19 +22,28 @@ def get_auth_url(redirect_uri: Optional[str] = None, state: Optional[str] = None
 async def oauth_callback(
     code: str = Query(...),
     state: Optional[str] = Query(None),
-    response: Response = None
 ):
     """Google OAuth redirect callback endpoint"""
     try:
         token_data = await google_auth_service.exchange_code_for_tokens(code)
         access_token = token_data.get("access_token")
         refresh_token = token_data.get("refresh_token")
+        expires_in = token_data.get("expires_in", 3600)
         user = await google_auth_service.fetch_user_info(access_token)
 
         session_token = google_auth_service.create_session_token(
             user=user,
             access_token=access_token,
             refresh_token=refresh_token
+        )
+
+        # Save session in Redis
+        await session_store.save_session(
+            session_id=session_token,
+            user=user.model_dump(),
+            access_token=access_token,
+            refresh_token=refresh_token,
+            expires_at=time.time() + expires_in,
         )
 
         frontend_target = state if (state and state.startswith("http")) else FRONTEND_URL
@@ -62,6 +73,7 @@ async def exchange_token(payload: GoogleTokenRequest, response: Response):
     try:
         access_token = payload.access_token
         refresh_token = None
+        expires_in = 3600
 
         if payload.code:
             token_data = await google_auth_service.exchange_code_for_tokens(
@@ -70,6 +82,7 @@ async def exchange_token(payload: GoogleTokenRequest, response: Response):
             )
             access_token = token_data.get("access_token")
             refresh_token = token_data.get("refresh_token")
+            expires_in = token_data.get("expires_in", 3600)
 
         if not access_token:
             raise HTTPException(
@@ -82,6 +95,15 @@ async def exchange_token(payload: GoogleTokenRequest, response: Response):
             user=user,
             access_token=access_token,
             refresh_token=refresh_token
+        )
+
+        # Save session in Redis
+        await session_store.save_session(
+            session_id=session_token,
+            user=user.model_dump(),
+            access_token=access_token,
+            refresh_token=refresh_token,
+            expires_at=time.time() + expires_in,
         )
 
         response.set_cookie(
@@ -116,7 +138,10 @@ async def get_current_user_profile(
 
 
 @router.post("/logout")
-def logout(response: Response):
-    """Clears the session cookie"""
+async def logout(request: Request, response: Response):
+    """Clears the session from Redis and cookie"""
+    session_id = getattr(request.state, "session_id", None) or request.cookies.get(TOKEN_STORAGE_COOKIE)
+    if session_id:
+        await session_store.delete_session(session_id)
     response.delete_cookie(TOKEN_STORAGE_COOKIE)
     return {"message": "Successfully logged out"}
