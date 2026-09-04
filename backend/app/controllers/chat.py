@@ -1,6 +1,8 @@
 import logging
 from typing import List
+import json
 from fastapi import HTTPException, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
@@ -19,7 +21,7 @@ from app.schema.chat import (
     UpdateSessionRequest,
 )
 from app.schema.enums import MessageRole
-from app.services.adk_chat_service import adk_chat_service
+from app.agents import adk_agent
 from app.services.query_service import query_service
 
 logger = logging.getLogger(__name__)
@@ -155,14 +157,14 @@ async def send_chat_message_controller(
     payload: SendMessageRequest,
     auth_data: tuple[User, str],
     db: Session,
-) -> SendMessageResponse:
+):
     """
-    Sends a message to the scoped RAG agent:
+    Sends a message to the scoped RAG agent via Server-Sent Events (SSE):
     1. Validates and saves the USER message in PostgreSQL.
     2. Runs the Google ADK RAG agent against scoped ChromaDB chunks.
-    3. Saves the ASSISTANT message in PostgreSQL.
-    4. Auto-updates session title if default.
-    5. Returns the assistant reply and document citations.
+    3. Streams the assistant reply chunks as they are generated.
+    4. Saves the ASSISTANT message in PostgreSQL.
+    5. Auto-updates session title if default.
     """
     user, _ = auth_data
     db_user = _get_or_create_db_user(db, user)
@@ -195,44 +197,45 @@ async def send_chat_message_controller(
     db.commit()
     db.refresh(user_msg)
 
-    # 2. Run Google ADK RAG agent turn
-    try:
-        assistant_reply, sources = await adk_chat_service.execute_chat(
-            session=session,
-            user_message=message_text,
-            user_id=db_user.id,
-            db=db,
-        )
-    except Exception as e:
-        logger.error("ADK chat execution failed: %s", e, exc_info=True)
-        assistant_reply = f"Error generating response: {str(e)}"
-        sources = []
+    # 2. Run Google ADK multi-agent turn streaming
+    async def stream_generator():
+        try:
+            async for data in adk_agent.execute_turn_stream(
+                session=session,
+                user_message=message_text,
+                user_id=db_user.id,
+                db=db,
+            ):
+                if data["type"] == "chunk":
+                    yield f"data: {json.dumps({'chunk': data['text']})}\n\n"
+                elif data["type"] == "done":
+                    # 3. Save assistant message to PostgreSQL
+                    assistant_msg = ChatMessage(
+                        session_id=session.id,
+                        role=MessageRole.ASSISTANT,
+                        content=data["text"],
+                    )
+                    db.add(assistant_msg)
 
-    # 3. Save assistant message to PostgreSQL
-    assistant_msg = ChatMessage(
-        session_id=session.id,
-        role=MessageRole.ASSISTANT,
-        content=assistant_reply,
-    )
-    db.add(assistant_msg)
+                    # 4. Auto-update session title if default
+                    if session.title == "New Chat":
+                        clean_title = message_text.replace("\n", " ")
+                        session.title = clean_title[:40] + ("..." if len(clean_title) > 40 else "")
 
-    # 4. Auto-update session title if default
-    if session.title == "New Chat":
-        # ponytail: First user query preview as title.
-        # Ceiling: 40 character slice.
-        # Upgrade path: Background LLM title generation job.
-        clean_title = message_text.replace("\n", " ")
-        session.title = clean_title[:40] + ("..." if len(clean_title) > 40 else "")
+                    db.commit()
+                    db.refresh(assistant_msg)
 
-    db.commit()
-    db.refresh(assistant_msg)
+                    final_payload = {
+                        "user_message": ChatMessageResponse.model_validate(user_msg).model_dump(mode="json"),
+                        "assistant_message": ChatMessageResponse.model_validate(assistant_msg).model_dump(mode="json"),
+                        "sources": data["sources"]
+                    }
+                    yield f"data: {json.dumps(final_payload)}\n\n"
+        except Exception as e:
+            logger.error("ADK chat execution failed: %s", e, exc_info=True)
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
-    return SendMessageResponse(
-        session_id=session.id,
-        user_message=ChatMessageResponse.model_validate(user_msg),
-        assistant_message=ChatMessageResponse.model_validate(assistant_msg),
-        sources=sources,
-    )
+    return StreamingResponse(stream_generator(), media_type="text/event-stream")
 
 
 async def query_documents_controller(

@@ -38,7 +38,7 @@ import {
   moveBookToDirectory,
   querySemanticSearch,
   removeBookFromDirectory,
-  sendChatMessage as apiSendChatMessage,
+  sendChatMessageStream as apiSendChatMessageStream,
   setStoredSessionToken,
   triggerBookIndex,
   updateBookProgress,
@@ -259,11 +259,20 @@ export const useAppStore = create<AppState>((set, get) => ({
   setAuthError: (authError) => set({ authError }),
 
   // ── UI State Defaults ──
-  darkMode:
-    typeof window !== 'undefined'
-      ? window.matchMedia &&
-        window.matchMedia('(prefers-color-scheme: dark)').matches
-      : false,
+  darkMode: (() => {
+    if (typeof window === 'undefined') return false;
+    const stored = localStorage.getItem('theme');
+    if (stored) {
+      const isDark = stored === 'dark';
+      if (isDark) document.documentElement.classList.add('dark');
+      else document.documentElement.classList.remove('dark');
+      return isDark;
+    }
+    const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    if (prefersDark) document.documentElement.classList.add('dark');
+    else document.documentElement.classList.remove('dark');
+    return prefersDark;
+  })(),
   sidebarOpen: typeof window !== 'undefined' ? window.innerWidth >= 1024 : true,
   annotationsOpen: false,
   chatOpen: false,
@@ -276,8 +285,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       const root = window.document.documentElement;
       if (enabled) {
         root.classList.add('dark');
+        localStorage.setItem('theme', 'dark');
       } else {
         root.classList.remove('dark');
+        localStorage.setItem('theme', 'light');
       }
     }
     set({ darkMode: enabled });
@@ -778,11 +789,21 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ chatLoading: true, chatError: null });
 
     // Optimistically append user message
+    const tempUserMsgId = `temp-user-${Date.now()}`;
     const tempUserMsg: ChatMessageResponse = {
-      id: `temp-${Date.now()}`,
+      id: tempUserMsgId,
       session_id: sessionId,
       role: 'USER',
       content,
+      created_at: new Date().toISOString(),
+    };
+
+    const tempAssistantMsgId = `temp-ast-${Date.now()}`;
+    const tempAssistantMsg: ChatMessageResponse = {
+      id: tempAssistantMsgId,
+      session_id: sessionId,
+      role: 'ASSISTANT',
+      content: '',
       created_at: new Date().toISOString(),
     };
 
@@ -791,34 +812,51 @@ export const useAppStore = create<AppState>((set, get) => ({
       return {
         activeSession: {
           ...state.activeSession,
-          messages: [...(state.activeSession.messages || []), tempUserMsg],
+          messages: [...(state.activeSession.messages || []), tempUserMsg, tempAssistantMsg],
         },
       };
     });
 
     try {
-      const response = await apiSendChatMessage(sessionId, content);
-      const assistantMsg: ChatMessageResponse = {
-        ...response.assistant_message,
-        sources: response.sources,
-      };
-
-      set((state) => {
-        if (!state.activeSession) return state;
-        const filteredMessages = (state.activeSession.messages || []).filter(
-          (m) => m.id !== tempUserMsg.id
-        );
-        return {
-          activeSession: {
-            ...state.activeSession,
-            messages: [
-              ...filteredMessages,
-              response.user_message,
-              assistantMsg,
-            ],
-          },
-        };
-      });
+      const stream = apiSendChatMessageStream(sessionId, content);
+      for await (const payload of stream) {
+        if (payload.chunk) {
+          set((state) => {
+            if (!state.activeSession) return state;
+            const msgs = state.activeSession.messages || [];
+            const updatedMsgs = msgs.map((m) =>
+              m.id === tempAssistantMsgId ? { ...m, content: m.content + payload.chunk } : m
+            );
+            return {
+              activeSession: {
+                ...state.activeSession,
+                messages: updatedMsgs,
+              },
+            };
+          });
+        } else if (payload.assistant_message) {
+          // Final payload
+          set((state) => {
+            if (!state.activeSession) return state;
+            const msgs = state.activeSession.messages || [];
+            const filtered = msgs.filter(
+              (m) => m.id !== tempAssistantMsgId && m.id !== tempUserMsgId
+            );
+            return {
+              activeSession: {
+                ...state.activeSession,
+                messages: [
+                  ...filtered,
+                  payload.user_message || tempUserMsg,
+                  { ...payload.assistant_message, sources: payload.sources },
+                ],
+              },
+            };
+          });
+        } else if (payload.error) {
+          throw new Error(payload.error);
+        }
+      }
     } catch (err) {
       set({ chatError: getApiErrorMessage(err) });
     } finally {

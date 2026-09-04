@@ -54,18 +54,22 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-origins = [
+cors_env = os.getenv("CORS_ORIGINS", "")
+extra_origins = [o.strip() for o in cors_env.split(",") if o.strip()]
+
+origins = list({
     FRONTEND_URL,
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
-]
+    *extra_origins,
+})
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_origin_regex=r"https://.*\.netlify\.app",
+    allow_origin_regex=r"https://.*\.(netlify\.app|prjly\.org)",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

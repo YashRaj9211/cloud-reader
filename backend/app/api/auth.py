@@ -2,7 +2,7 @@ import time
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import RedirectResponse
-from app.config import FRONTEND_URL, TOKEN_STORAGE_COOKIE
+from app.config import FRONTEND_URL, TOKEN_STORAGE_COOKIE, COOKIE_SECURE, COOKIE_SAMESITE
 from app.schemas import AuthStatus, GoogleTokenRequest, User
 from app.services.google_auth_service import google_auth_service
 from app.services.session import get_current_user_and_token
@@ -53,8 +53,8 @@ async def oauth_callback(
             key=TOKEN_STORAGE_COOKIE,
             value=session_token,
             httponly=True,
-            samesite="none",
-            secure=True,
+            samesite=COOKIE_SAMESITE,
+            secure=COOKIE_SECURE,
             max_age=30 * 24 * 3600
         )
         return res
@@ -110,8 +110,8 @@ async def exchange_token(payload: GoogleTokenRequest, response: Response):
             key=TOKEN_STORAGE_COOKIE,
             value=session_token,
             httponly=True,
-            samesite="none",
-            secure=True,
+            samesite=COOKIE_SAMESITE,
+            secure=COOKIE_SECURE,
             max_age=30 * 24 * 3600
         )
 

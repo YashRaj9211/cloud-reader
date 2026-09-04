@@ -25,7 +25,7 @@ from app.schema.chat import (
 )
 from app.services.session import get_current_user_and_token
 from app.schemas import User as SchemaUser
-from app.services.adk_chat_service import adk_chat_service, retrieve_document_context
+from app.agents import adk_agent, chat_agent, root_agent, retrieve_document_context
 from google.adk.tools import ToolContext
 
 
@@ -35,12 +35,17 @@ def test_adk_chat_full_flow():
     print("=======================================================\n")
 
     # 1. Verify ADK Agent configuration
-    print("[Step 1] Verifying Google ADK LlmAgent & LiteLlm configuration...")
-    agent = adk_chat_service.agent
+    print("[Step 1] Verifying Google ADK Multi-Agent & LiteLlm configuration...")
+    print("  -> Root Agent name:", root_agent.name)
+    assert root_agent.name == "root_agent", f"Unexpected root agent: {root_agent.name}"
+    assert chat_agent in root_agent.sub_agents, "Expected chat_agent to be a sub_agent of root_agent"
+
+    agent = chat_agent
     assert agent.name == "cloud_pdf_rag_agent", f"Unexpected agent name: {agent.name}"
-    assert len(agent.tools) == 1, f"Expected 1 tool, got {len(agent.tools)}"
-    print("  -> ADK Agent name:", agent.name)
-    print("  -> Registered tool:", agent.tools[0].__name__)
+    tool_names = [t.__name__ for t in agent.tools]
+    assert "retrieve_document_context" in tool_names, "Expected retrieve_document_context tool"
+    print("  -> Chat Agent name:", agent.name)
+    print("  -> Registered tools:", tool_names)
     print("  -> LiteLlm model:", getattr(agent.model, "model", str(agent.model)))
 
     # 2. Verify Database Connection & User Setup

@@ -80,7 +80,7 @@ async def delete_chat_session(
     )
 
 
-@chat_router.post("/sessions/{session_id}/message", response_model=SendMessageResponse)
+@chat_router.post("/sessions/{session_id}/message")
 async def send_chat_message(
     session_id: str,
     payload: SendMessageRequest,

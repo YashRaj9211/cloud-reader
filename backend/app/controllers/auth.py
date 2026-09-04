@@ -2,7 +2,7 @@ import time
 from typing import Optional
 from fastapi import HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
-from app.config import FRONTEND_URL, TOKEN_STORAGE_COOKIE
+from app.config import FRONTEND_URL, TOKEN_STORAGE_COOKIE, COOKIE_SECURE, COOKIE_SAMESITE
 from app.schemas import AuthStatus, GoogleTokenRequest, User
 from app.services.google_auth_service import google_auth_service
 from app.services.session_store import session_store
@@ -38,18 +38,22 @@ async def oauth_callback_controller(code: str, state: Optional[str] = None) -> R
             expires_at=time.time() + expires_in,
         )
 
-        redirect_target = f"{FRONTEND_URL}?auth_success=1&token={session_token}"
+        # Support local frontend testing: if state contains a valid HTTP(S) origin, redirect there
+        frontend_target = state if (state and state.startswith("http")) else FRONTEND_URL
+        redirect_target = f"{frontend_target}?auth_success=1&token={session_token}"
         res = RedirectResponse(url=redirect_target)
         res.set_cookie(
             key=TOKEN_STORAGE_COOKIE,
             value=session_token,
             httponly=True,
-            samesite="lax",
+            samesite=COOKIE_SAMESITE,
+            secure=COOKIE_SECURE,
             max_age=30 * 24 * 3600
         )
         return res
     except Exception as e:
-        redirect_err = f"{FRONTEND_URL}?auth_error={str(e)}"
+        frontend_target = state if (state and state.startswith("http")) else FRONTEND_URL
+        redirect_err = f"{frontend_target}?auth_error={str(e)}"
         return RedirectResponse(url=redirect_err)
 
 
@@ -98,7 +102,8 @@ async def exchange_token_controller(payload: GoogleTokenRequest, response: Respo
             key=TOKEN_STORAGE_COOKIE,
             value=session_token,
             httponly=True,
-            samesite="lax",
+            samesite=COOKIE_SAMESITE,
+            secure=COOKIE_SECURE,
             max_age=30 * 24 * 3600
         )
 

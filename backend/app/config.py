@@ -2,10 +2,17 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Load .env file from backend root
-env_path = Path(__file__).resolve().parent.parent / ".env"
-load_dotenv(dotenv_path=env_path, override=True)
+# Load base .env file from backend root
+backend_root = Path(__file__).resolve().parent.parent
+base_env_path = backend_root / ".env"
+if base_env_path.exists():
+    load_dotenv(dotenv_path=base_env_path, override=True)
 
+# Load environment-specific .env file (e.g., .env.development or .env.production)
+APP_ENV = os.getenv("APP_ENV", "development")
+env_specific_path = backend_root / f".env.{APP_ENV}"
+if env_specific_path.exists():
+    load_dotenv(dotenv_path=env_specific_path, override=True)
 # Core App Settings
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
@@ -13,6 +20,8 @@ GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/ap
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
 SESSION_SECRET = os.getenv("SESSION_SECRET", "cloud-pdf-reader-secure-session-key-39281")
 TOKEN_STORAGE_COOKIE = "cloud_pdf_session"
+COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() in ("true", "1", "yes")
+COOKIE_SAMESITE = os.getenv("COOKIE_SAMESITE", "lax")
 
 # NVIDIA AI & Embeddings
 NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "")

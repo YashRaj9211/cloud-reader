@@ -309,15 +309,49 @@ export async function deleteChatSession(sessionId: string): Promise<{ status: st
   return data;
 }
 
-export async function sendChatMessage(
+export async function* sendChatMessageStream(
   sessionId: string,
   message: string
-): Promise<SendMessageResponse> {
-  const { data } = await apiClient.post<SendMessageResponse>(
-    `/api/chat/sessions/${sessionId}/message`,
-    { message }
-  );
-  return data;
+): AsyncGenerator<any> {
+  const token = getStoredSessionToken();
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(`${API_BASE}/api/chat/sessions/${sessionId}/message`, {
+    method: 'POST',
+    credentials: 'include',
+    headers,
+    body: JSON.stringify({ message }),
+  });
+
+  if (!res.ok) throw new Error(`Chat request failed: ${res.statusText}`);
+  if (!res.body) throw new Error('No readable stream');
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        const dataStr = line.slice(6);
+        if (!dataStr) continue;
+        try {
+          const data = JSON.parse(dataStr);
+          yield data;
+        } catch (e) {
+          console.error("Failed to parse SSE data", e, dataStr);
+        }
+      }
+    }
+  }
 }
 
 export async function querySemanticSearch(payload: QueryRequest): Promise<QueryResponse> {
