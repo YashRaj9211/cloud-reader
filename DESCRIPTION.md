@@ -14,11 +14,36 @@
 
 ### 2. PDF Reader & Rich Annotation Engine
 - **PDF.js Engine**: Continuous smooth scrolling, thumbnail navigation, responsive zoom, jumping to pages, and dark/sepia reading modes.
+- **Performance Optimizations**:
+  - **Page Virtualization**: In continuous scroll mode, only the current page ±2 pages are mounted in the DOM. All other pages are represented by height-preserving spacer `div`s, preventing thousands of canvas elements from being created for large PDFs.
+  - **Canvas Eviction**: When a page scrolls outside the virtualization window, its canvas backing store is cleared and its dimensions zeroed to release GPU/CPU memory immediately.
+  - **DPR Capping**: `devicePixelRatio` is capped at `2.0` on desktop and `1.5` on mobile to prevent unnecessarily large canvases on high-DPI screens.
+  - **RenderTask Management**: A module-level `Map` tracks active PDF.js `RenderTask` instances per page. Any in-flight render is cancelled before a new one starts, preventing duplicate rendering loops on zoom/scroll.
+  - **React.memo**: `PDFPageItem` is wrapped in `React.memo` and all annotation callbacks are stabilised with `useCallback`, so toolbar state changes (color, tool mode) do not trigger canvas re-renders.
+  - **Debounced ResizeObserver**: Container width changes only propagate (and trigger re-renders) after 150ms of resize inactivity and only if the width changed by more than 5px.
+  - **Idle-Scheduled Thumbnails**: Thumbnail rendering in `ThumbnailSidebar` is deferred via `requestIdleCallback` (with a `setTimeout` polyfill) so thumbnails never compete with main page rendering bandwidth.
+- **Native Text Layer (PDF.js v5 `TextLayer`)**:
+  - Each visible page renders an invisible, selectable text layer (`<div class="textLayer">`) aligned pixel-precisely over the canvas using CSS transforms (`--scale-factor`, `--total-scale-factor`).
+  - Text is 100% selectable and copy/paste-able (Ctrl+C / Cmd+C) just like Chrome/Edge native PDF viewers.
+  - **Zero Visual Ghosting / Text Overlay**: Both unselected and selected text glyphs strictly enforce `color: transparent !important;` and `-webkit-text-fill-color: transparent !important;` alongside `text-shadow: none !important;`. This ensures only the native selection highlight box appears over the crisp canvas text, preventing any blurry duplicate or color-inverted ghost text overlays.
+  - **Dark Mode Selection Compatibility**: High-contrast, theme-appropriate selection tints (`rgba(0, 102, 255, 0.3)` in light mode, `rgba(96, 165, 250, 0.45)` in dark mode) without applying CSS filters to the text layer DOM node, preserving exact subpixel alignment.
+  - Text layer lifecycle mirrors canvas lifecycle: rendered when visible, cancelled and evicted when the page leaves the viewport window, re-rendered on zoom or resize.
+  - The text layer runs in a **separate, independent effect** from canvas rendering — text layer updates never cause canvas re-renders.
+  - The interactive overlay is set to `pointer-events: none` in **view** mode so mouse/touch events reach the text layer for native selection, and `pointer-events: auto` in all drawing/annotation modes.
+- **Floating Text-Selection Action Bar**:
+  - When text is selected in view mode, a sleek dark pill action bar appears above the selection with three actions:
+    - **✦ Highlight**: Converts the selection bounding box to page-relative percentage coordinates and stores a `Highlight` annotation with the selected text attached.
+    - **⌘ Copy**: Writes the selected text to the system clipboard.
+    - **✎ Note**: Opens a sticky-note popup pre-filled with the selected text. The popup has isolated `pointer-events: auto` and event propagation guards, supporting mouse clicks (Save, Cancel, Close) and keyboard shortcuts (`Ctrl/Cmd + Enter` to save, `Esc` to cancel) in view mode.
+  - The bar dismisses automatically when the tool mode changes, when an action is executed, or whenever the selection collapses/clears via global `selectionchange`.
 - **Rich Annotation Layer**:
   - Freehand ink & highlighter with configurable width, color, and opacity.
   - Precision geometrical shapes (rectangles, ellipses, lines, arrows).
   - Sticky notes, text boxes, and marginal commentary.
-  - Text selection highlights with attached note cards.
+  - Text selection highlights with attached note cards and exact text capture.
+  - **Robust Annotation Lifecycle & ID Integrity**: All annotations (highlights, notes, ink strokes, shapes, text boxes) are guaranteed unique cryptographic/timestamp-based IDs (`note-...`, `hl-...`, etc.) and ISO timestamps on creation. Legacy/unindexed annotations are automatically sanitized with stable fallback keys upon hydration, preventing accidental batch deletion of notes and eliminating "Invalid Date" displays.
+  - **Annotation Deep-Linking & Jump-to-Note**: Clicking any annotation or note in the `AnnotationPanel` immediately smooth-scrolls continuous reading view to the target page and opens the dedicated note card.
+- **Page Size Cache**: `PDFPageItem` reports its exact rendered dimensions to `PDFReader` via `onPageSizeChange`, populating a `pageSizeCache` ref. Virtualized spacer divs use these exact heights instead of A4 estimates, eliminating layout shifts when scrolling through previously-rendered pages.
 - **Cross-device State Sync**: Real-time sync of reading progress, zoom settings, and annotations.
 
 ### 3. Asynchronous Event-Driven Ingestion Pipeline (Kafka + Workers)

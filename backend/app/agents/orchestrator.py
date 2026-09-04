@@ -224,11 +224,17 @@ class ADKAgentOrchestrator:
                 parts=[types.Part.from_text(text=user_message)],
             ),
         ):
+            # Stream partial chunks as they arrive
+            if getattr(event, "partial", False) and event.content and event.content.parts:
+                for part in event.content.parts:
+                    if part.text:
+                        yield {"type": "chunk", "text": part.text}
+
+            # Collect the final complete response text for memory and the final payload
             if event.is_final_response() and event.content and event.content.parts:
                 for part in event.content.parts:
                     if part.text:
                         assistant_parts.append(part.text)
-                        yield {"type": "chunk", "text": part.text}
 
         # Retrieve updated sources from state
         updated_session = await self._session_service.get_session(

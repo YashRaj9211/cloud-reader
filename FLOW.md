@@ -67,27 +67,58 @@ flowchart TD
 
 ---
 
-## 3. Reading & Annotation Sync Flow
+## 3. Reading, Annotation & Text Selection Flow
 
 ```mermaid
 sequenceDiagram
     autonumber
     actor User
-    participant Reader as PDF Reader UI (Canvas/Overlay)
+    participant Reader as PDF Reader UI
+    participant TextLayer as TextLayer (PDFPageItem)
+    participant Overlay as Interactive Overlay
     participant Store as Client Store (Zustand / Local State)
     participant Backend as FastAPI (/api/sync)
     participant Drive as Google Drive / DB
 
-    User->>Reader: Draw ink, highlight text, or drop sticky note
-    Reader->>Store: Update in-memory annotation map
+    Note over User,TextLayer: View mode — text selection enabled
+    User->>TextLayer: Click & drag over PDF text
+    TextLayer-->>User: Browser selection box (strictly transparent spans & ::selection, zero duplicate text overlay)
+    User->>TextLayer: Release mouse (mouseup)
+    TextLayer->>Reader: handleTextLayerMouseUp → compute selection bounds
+    Reader-->>User: Show floating action bar (Highlight / Copy / Note)
+
+    alt User clicks Highlight
+        User->>Reader: handleSelectionHighlight()
+        Reader->>Store: onAddHighlight({ page, x%, y%, width%, height%, text })
+        Store->>Backend: POST /api/sync (debounced)
+        Backend->>Drive: Persist annotation JSON
+    else User clicks Copy
+        User->>Reader: handleSelectionCopy()
+        Reader->>Reader: navigator.clipboard.writeText(text)
+    else User clicks Note
+        User->>Reader: handleSelectionNote()
+        Reader-->>User: Open sticky note popup pre-filled with selected text
+        User->>Reader: Save note (with unique ID and ISO timestamp)
+        Reader->>Store: onAddNote({ id, page, x%, y%, text, createdAt })
+    else User clicks away / clears selection
+        TextLayer->>Reader: document 'selectionchange' (isCollapsed) → dismiss floating bar
+    end
+
+    Note over User,Reader: Annotation Sidebar navigation
+    opt User clicks note in AnnotationPanel
+        User->>Reader: onPageSelect(page, noteId)
+        Reader->>Reader: scrollToPage(page, 'smooth') + setSelectedNote(note)
+        Reader-->>User: Scroll view to page and pop open note card
+    end
+
+    Note over User,Overlay: Drawing mode — annotations enabled
+    User->>Overlay: Switch toolMode to ink/shape/eraser
+    Overlay->>Overlay: pointer-events: auto (overlay captures all input)
+    User->>Overlay: Draw / erase / place shape
+    Overlay->>Store: onAddInkStroke / onAddShape / etc.
     Store->>Backend: POST /api/sync (Debounced delta or snapshot)
     Backend->>Drive: Persist annotation JSON to Drive / App Data
     Backend-->>Store: 200 OK (Sync confirmed + version timestamp)
-    
-    Note over User,Drive: When opening on another device:
-    User->>Backend: GET /api/sync
-    Backend->>Drive: Fetch latest annotation payload
-    Backend-->>Reader: Hydrate canvas & note overlays
 ```
 
 ---
@@ -139,4 +170,44 @@ sequenceDiagram
     Controller->>DB: Save Assistant message to PostgreSQL
     Controller-->>UI: Server-Sent Events (data: {"assistant_message": ..., "sources": ...})
 ```
+
+
+---
+
+## 5. PDF Page Rendering and Virtualization Lifecycle
+
+Describes the rendering pipeline from PDF load to page display, including the virtualization and memory eviction strategies.
+
+### Page Layer Stack (z-index order, bottom to top)
+
+| z-index | Element | Purpose |
+|---------|---------|---------|
+| 0 | `<canvas>` (PDF canvas) | Rasterized PDF page via `page.render()` |
+| 5 | `<div class="textLayer">` | Transparent, selectable text spans from `pdfjsLib.TextLayer` |
+| 10 | `<svg>` (SVG annotation layer) | Permanent ink strokes, shapes, and highlights (`pointerEvents: none`) |
+| 20 | `<canvas>` (ink canvas) | Live drawing preview — shown only during `ink`/`highlight` tool modes |
+| 30 | `<div>` (interactive overlay) | Captures pointer events for all annotation tools; `pointer-events: none` in view mode |
+| 40–60 | Annotation UI elements | Sticky note pins, delete bars, note popups, selection action bar |
+
+### Key Invariants
+- Annotation layers (SVG overlay, interactive div) are **independent** from the PDF canvas and never cause canvas re-renders.
+- The **text layer** is rendered in a **separate, independent `useEffect`** from the canvas effect — text layer updates never trigger canvas re-renders and vice versa.
+- `PDFPageItem` is wrapped in `React.memo`; toolbar color/tool changes do **not** re-render any page canvas.
+- The `activeRenderTasks` and `activeTextTasks` module-level maps ensure at most **one active task per page** for each layer type.
+- Spacer `div`s use real heights from `pageSizeCache` (populated via `onPageSizeChange` callback) or fall back to A4 estimates, preventing scroll position drift.
+- Thumbnail rendering is deferred via `requestIdleCallback` so it never competes with main page rendering.
+- DPR is capped at 2.0 (desktop) / 1.5 (mobile) to keep canvas memory bounded.
+- In **view** mode, the interactive overlay has `pointer-events: none` so native text selection works through to the text layer.
+- In **annotation** modes (ink, shape, highlight, eraser, note, textbox), the overlay has `pointer-events: auto` and `user-select: none` to capture all drawing interactions.
+
+### Rendering Flow Summary
+1. PDF loaded → `pdfjsLib.getDocument` (Web Worker thread)
+2. Continuous mode: compute window `[currentPage-2, currentPage+2]`
+3. Pages in window → mount `PDFPageItem`; pages outside → height-preserving spacer div
+4. `IntersectionObserver` (rootMargin=1000px) triggers **canvas render** when page enters margin
+5. `IntersectionObserver` (same observer) triggers **text layer render** when page enters margin
+6. `IntersectionObserver` clears canvas + zeros dimensions + evicts text layer DOM when page exits margin
+7. Each render cancels the previous `RenderTask` / `TextLayer` for that page before starting a new one
+8. Thumbnails rendered at scale 0.2 via `requestIdleCallback`, canvas released immediately after `toDataURL`
+9. `PDFPageItem` reports exact rendered dimensions to `PDFReader` via `onPageSizeChange` → `pageSizeCache`
 

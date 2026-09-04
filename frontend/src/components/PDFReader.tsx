@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import {
   ChevronLeft,
@@ -39,7 +39,11 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   import.meta.url
 ).toString();
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// ─── Configuration ──────────────────────────────────────────────────────────
+// How many pages to render above and below the current page in continuous mode.
+const PRELOAD_WINDOW = 2;
+
+// ─── Types ───────────────────────────────────────────────────────────────────
 
 interface PDFReaderProps extends AnnotationData, AnnotationHandlers {
   pdfData: ArrayBuffer;
@@ -47,6 +51,8 @@ interface PDFReaderProps extends AnnotationData, AnnotationHandlers {
   onChangePage: (page: number) => void;
   onDocumentLoad?: (numPages: number) => void;
   darkMode: boolean;
+  selectedNoteId?: string | null;
+  onClearSelectedNoteId?: () => void;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -72,17 +78,24 @@ export default function PDFReader({
   onDeleteTextBox,
   onDocumentLoad,
   darkMode,
+  selectedNoteId,
+  onClearSelectedNoteId,
 }: PDFReaderProps) {
   // ── Refs ──────────────────────────────────────────────────────────────────
   const containerRef = useRef<HTMLDivElement>(null);
   const isScrollingProgrammatically = useRef<boolean>(false);
   const scrollTimeoutRef = useRef<any>(null);
+  const resizeDebounceRef = useRef<any>(null);
 
   // ── PDF state ─────────────────────────────────────────────────────────────
   const [pdf, setPdf] = useState<any>(null);
   const [totalPages, setTotalPages] = useState<number>(1);
   const [loading, setLoading] = useState<boolean>(true);
   const [containerWidth, setContainerWidth] = useState<number>(800);
+
+  // ── Page height cache — used to keep spacers the right size ───────────────
+  // Keyed by `${pageNum}-${zoom}`, updated as pages render
+  const pageSizeCache = useRef<Map<string, { w: number; h: number }>>(new Map());
 
   // ── View Mode: Continuous Scroll vs Single Page ───────────────────────────
   const [isContinuous, setIsContinuous] = useState<boolean>(true);
@@ -92,12 +105,14 @@ export default function PDFReader({
   const [activeShape, setActiveShape] = useState<ShapeKind>('rect');
   const [zoom, setZoom] = useState<number>(1.0);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
-  const [thumbnailOpen, setThumbnailOpen] = useState<boolean>(() => typeof window !== 'undefined' ? window.innerWidth >= 1024 : false);
+  const [thumbnailOpen, setThumbnailOpen] = useState<boolean>(() =>
+    typeof window !== 'undefined' ? window.innerWidth >= 1024 : false
+  );
 
   // ── Annotation colours & sizes ────────────────────────────────────────────
   const [annotColor, setAnnotColor] = useState<string>('#fa5d19');
   const [inkWidth, setInkWidth] = useState<number>(3);
-  const [hlWidth, setHlWidth] = useState<number>(18); // highlighter brush width
+  const [hlWidth, setHlWidth] = useState<number>(18);
 
   // ── Selected shape (for delete) ───────────────────────────────────────────
   const [selectedShapeId, setSelectedShapeId] = useState<string | null>(null);
@@ -109,8 +124,9 @@ export default function PDFReader({
   useEffect(() => {
     if (!pdfData || pdfData.byteLength === 0) return;
     setLoading(true);
+    // Reset height cache on new document
+    pageSizeCache.current.clear();
 
-    // Clone the underlying ArrayBuffer slice so PDF.js Web Worker postMessage transfer doesn't detach/neuter store bytes
     const clonedData = new Uint8Array(pdfData.slice(0));
     const task = pdfjsLib.getDocument({
       data: clonedData,
@@ -151,18 +167,31 @@ export default function PDFReader({
     };
   }, [pdfData]);
 
-  // ─── Container resize observer ───────────────────────────────────────────
+  // ─── Container resize observer (debounced to avoid thrashing) ────────────
   useEffect(() => {
     if (!containerRef.current) return;
     const ro = new ResizeObserver((entries) => {
       for (const e of entries) {
         if (e.contentRect.width > 0) {
-          setContainerWidth(e.contentRect.width);
+          const newWidth = e.contentRect.width;
+          // Debounce: only commit width after 150ms of no resize events
+          if (resizeDebounceRef.current) clearTimeout(resizeDebounceRef.current);
+          resizeDebounceRef.current = setTimeout(() => {
+            setContainerWidth((prev) => {
+              // Only update if width meaningfully changed (> 5px) to avoid
+              // triggering canvas re-renders for hairline layout changes
+              if (Math.abs(newWidth - prev) > 5) return newWidth;
+              return prev;
+            });
+          }, 150);
         }
       }
     });
     ro.observe(containerRef.current);
-    return () => ro.disconnect();
+    return () => {
+      ro.disconnect();
+      if (resizeDebounceRef.current) clearTimeout(resizeDebounceRef.current);
+    };
   }, []);
 
   // ─── Fullscreen listener ──────────────────────────────────────────────────
@@ -190,9 +219,6 @@ export default function PDFReader({
   };
 
   // ─── Continuous Scroll: Scroll spy to update currentPage ──────────────────
-  const isUserScrolling = useRef(false);
-  const userScrollTimeout = useRef<NodeJS.Timeout | null>(null);
-
   useEffect(() => {
     if (!isContinuous || !containerRef.current) return;
 
@@ -206,8 +232,8 @@ export default function PDFReader({
           ticking = false;
           if (!container) return;
 
-      const pageElements = container.querySelectorAll<HTMLElement>('.pdf-page-container');
-      if (!pageElements.length) return;
+          const pageElements = container.querySelectorAll<HTMLElement>('.pdf-page-container');
+          if (!pageElements.length) return;
 
           const containerRect = container.getBoundingClientRect();
           const containerMid = containerRect.top + containerRect.height / 3;
@@ -218,7 +244,6 @@ export default function PDFReader({
           pageElements.forEach((el) => {
             const pageNum = parseInt(el.dataset.pageNumber || '1', 10);
             const rect = el.getBoundingClientRect();
-
             const distance = Math.abs(rect.top - containerMid);
             if (rect.bottom > containerRect.top && rect.top < containerRect.bottom) {
               if (distance < minDistance) {
@@ -229,6 +254,7 @@ export default function PDFReader({
           });
 
           if (currentBestPage !== currentPage && currentBestPage >= 1 && currentBestPage <= totalPages) {
+            lastScrolledPage.current = currentBestPage;
             onChangePage(currentBestPage);
           }
         });
@@ -250,16 +276,14 @@ export default function PDFReader({
       isScrollingProgrammatically.current = true;
       if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
 
-      // Avoid scrollIntoView which aggressively scrolls all overflow-hidden ancestors
       const containerTop = containerRef.current.scrollTop;
       const containerRect = containerRef.current.getBoundingClientRect();
       const targetRect = targetEl.getBoundingClientRect();
-      
       const targetScrollTop = containerTop + (targetRect.top - containerRect.top);
 
       containerRef.current.scrollTo({
-        top: targetScrollTop - 16, // small padding
-        behavior
+        top: targetScrollTop - 16,
+        behavior,
       });
 
       scrollTimeoutRef.current = setTimeout(() => {
@@ -267,6 +291,33 @@ export default function PDFReader({
       }, 700);
     }
   }, []);
+
+  // ─── External page change sync (from AnnotationPanel, search, etc.) ───────
+  const lastScrolledPage = useRef(currentPage);
+  useEffect(() => {
+    if (lastScrolledPage.current !== currentPage) {
+      lastScrolledPage.current = currentPage;
+      if (isContinuous) {
+        scrollToPage(currentPage, 'smooth');
+      }
+    }
+  }, [currentPage, isContinuous, scrollToPage]);
+
+  // ─── Selected Note sync (open note card and jump to note on click) ──────────
+  useEffect(() => {
+    if (selectedNoteId && notes.length > 0) {
+      const match = notes.find((n) => n.id === selectedNoteId);
+      if (match) {
+        setSelectedNote(match);
+        if (match.page !== currentPage) {
+          onChangePage(match.page);
+        }
+        if (isContinuous) {
+          scrollToPage(match.page, 'smooth');
+        }
+      }
+    }
+  }, [selectedNoteId, notes, currentPage, isContinuous, onChangePage, scrollToPage]);
 
   const handlePageSelectAndScroll = (pageNum: number) => {
     if (pageNum >= 1 && pageNum <= totalPages) {
@@ -288,14 +339,35 @@ export default function PDFReader({
       const vp = page.getViewport({ scale: 1.0 });
       const containerH = containerRef.current!.clientHeight - 32;
       const effectiveW = (containerWidth > 0 ? containerWidth : containerRef.current!.clientWidth) - 32;
-      
+
       const widthScale = effectiveW / vp.width;
       const heightScale = containerH / vp.height;
-      
+
       const targetZoom = Math.min(widthScale, heightScale) / widthScale;
       setZoom(Math.max(0.3, Math.min(3.0, targetZoom)));
     }).catch(console.error);
   }, [pdf, currentPage, containerWidth]);
+
+  // ─── Stabilised annotation callbacks (React.memo equality) ───────────────
+  const stableOnAddHighlight = useCallback(onAddHighlight, []);
+  const stableOnDeleteHighlight = useCallback(onDeleteHighlight, []);
+  const stableOnAddNote = useCallback(onAddNote, []);
+  const stableOnDeleteNote = useCallback(onDeleteNote, []);
+  const stableOnAddInkStroke = useCallback(onAddInkStroke, []);
+  const stableOnDeleteInkStroke = useCallback(onDeleteInkStroke, []);
+  const stableOnAddShape = useCallback(onAddShape, []);
+  const stableOnDeleteShape = useCallback(onDeleteShape, []);
+  const stableOnAddTextBox = useCallback(onAddTextBox, []);
+  const stableOnDeleteTextBox = useCallback(onDeleteTextBox, []);
+  const stableOnSelectShapeId = useCallback(setSelectedShapeId, []);
+  const stableOnSelectNote = useCallback(setSelectedNote, []);
+
+  /** Populate the pageSizeCache so spacer divs match real page heights. */
+  const handlePageSizeChange = useCallback((num: number, size: { w: number; h: number }) => {
+    pageSizeCache.current.set(`${num}-${zoom}`, size);
+  // zoom is stable during a single scroll cycle; adding it as a dep is safe.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zoom]);
 
   // ─── Palette & toolbar helpers ────────────────────────────────────────────
   const paletteColors = [
@@ -350,6 +422,63 @@ export default function PDFReader({
   );
 
   const divider = <div className="h-5 w-px mx-0.5 bg-(--color-outline-variant)" />;
+
+  // ─── Virtualization: Compute the window of page numbers to mount ──────────
+  // In continuous mode we only mount PRELOAD_WINDOW pages above and below the
+  // current page. All others are replaced with height-preserving spacers.
+  const renderedPageNums = useMemo((): Set<number> => {
+    if (!isContinuous) return new Set([currentPage]);
+    const start = Math.max(1, currentPage - PRELOAD_WINDOW);
+    const end = Math.min(totalPages, currentPage + PRELOAD_WINDOW);
+    const set = new Set<number>();
+    for (let i = start; i <= end; i++) set.add(i);
+    return set;
+  }, [isContinuous, currentPage, totalPages]);
+
+  // ─── Shared props object (memoised to avoid object identity churn) ─────────
+  const sharedItemProps = useMemo(() => ({
+    pdf,
+    zoom,
+    containerWidth,
+    darkMode,
+    toolMode,
+    activeShape,
+    annotColor,
+    inkWidth,
+    hlWidth,
+    highlights,
+    notes,
+    inkStrokes,
+    shapes,
+    textBoxes,
+    onAddHighlight: stableOnAddHighlight,
+    onDeleteHighlight: stableOnDeleteHighlight,
+    onAddNote: stableOnAddNote,
+    onDeleteNote: stableOnDeleteNote,
+    onAddInkStroke: stableOnAddInkStroke,
+    onDeleteInkStroke: stableOnDeleteInkStroke,
+    onAddShape: stableOnAddShape,
+    onDeleteShape: stableOnDeleteShape,
+    onAddTextBox: stableOnAddTextBox,
+    onDeleteTextBox: stableOnDeleteTextBox,
+    selectedShapeId,
+    onSelectShapeId: stableOnSelectShapeId,
+    onSelectNote: stableOnSelectNote,
+    scrollContainer: containerRef.current,
+    onPageSizeChange: handlePageSizeChange,
+  }), [
+    pdf, zoom, containerWidth, darkMode, toolMode, activeShape,
+    annotColor, inkWidth, hlWidth,
+    highlights, notes, inkStrokes, shapes, textBoxes,
+    selectedShapeId,
+    stableOnAddHighlight, stableOnDeleteHighlight,
+    stableOnAddNote, stableOnDeleteNote,
+    stableOnAddInkStroke, stableOnDeleteInkStroke,
+    stableOnAddShape, stableOnDeleteShape,
+    stableOnAddTextBox, stableOnDeleteTextBox,
+    stableOnSelectShapeId, stableOnSelectNote,
+    handlePageSizeChange,
+  ]);
 
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
@@ -581,7 +710,7 @@ export default function PDFReader({
         {/* Main scroll / canvas container */}
         <div
           ref={containerRef}
-          className="flex-1 overflow-auto p-2 sm:p-4 relative select-none bg-(--color-surface-container-lowest) scroll-smooth"
+          className="flex-1 overflow-auto p-2 sm:p-4 relative bg-(--color-surface-container-lowest) scroll-smooth selection:text-transparent"
         >
           {loading && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-zinc-900/5 backdrop-blur-sm z-50">
@@ -592,56 +721,56 @@ export default function PDFReader({
 
           {!loading && pdf && (
             <div className="w-full flex flex-col items-center min-h-full">
-              {(() => {
-                const sharedItemProps = {
-                  pdf,
-                  zoom,
-                  containerWidth,
-                  darkMode,
-                  toolMode,
-                  activeShape,
-                  annotColor,
-                  inkWidth,
-                  hlWidth,
-                  highlights,
-                  notes,
-                  inkStrokes,
-                  shapes,
-                  textBoxes,
-                  onAddHighlight,
-                  onDeleteHighlight,
-                  onAddNote,
-                  onDeleteNote,
-                  onAddInkStroke,
-                  onDeleteInkStroke,
-                  onAddShape,
-                  onDeleteShape,
-                  onAddTextBox,
-                  onDeleteTextBox,
-                  selectedShapeId,
-                  onSelectShapeId: setSelectedShapeId,
-                  onSelectNote: setSelectedNote,
-                  scrollContainer: containerRef.current,
-                };
+              {isContinuous ? (
+                // ── Continuous Scroll with Virtualization ──
+                // All page numbers are iterated; pages outside the render window
+                // are rendered as height-preserving spacer divs instead.
+                Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => {
+                  if (renderedPageNums.has(pageNum)) {
+                    return (
+                      <PDFPageItem
+                        key={pageNum}
+                        pageNum={pageNum}
+                        {...sharedItemProps}
+                      />
+                    );
+                  }
 
-                return isContinuous ? (
-                  // ── Continuous Scroll: All pages mounted in DOM with IntersectionObserver lazy canvas rendering ──
-                  Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => (
-                    <PDFPageItem
+                  // ── Spacer: preserves scrollbar height without mounting a canvas ──
+                  const cacheKey = `${pageNum}-${zoom}`;
+                  const cached = pageSizeCache.current.get(cacheKey);
+                  // If we have a cached height, use it; otherwise estimate from A4 aspect ratio
+                  const spacerH = cached
+                    ? cached.h + 24 /* mb-6 */
+                    : Math.round((containerWidth - 48) * (297 / 210)) + 24;
+
+                  return (
+                    <div
                       key={pageNum}
-                      pageNum={pageNum}
-                      {...sharedItemProps}
-                    />
-                  ))
-                ) : (
-                  // ── Single Page Mode ──
-                  <PDFPageItem
-                    key={currentPage}
-                    pageNum={currentPage}
-                    {...sharedItemProps}
-                  />
-                );
-              })()}
+                      data-page-number={pageNum}
+                      data-spacer="true"
+                      className="pdf-page-container flex flex-col items-center mb-6 relative w-full"
+                      style={{ height: spacerH, minHeight: 400 }}
+                    >
+                      <div className="text-[11px] font-mono font-medium text-zinc-400 mb-1.5 self-start ml-2 flex items-center gap-1.5 opacity-50">
+                        <span className="w-2 h-2 rounded-full bg-zinc-400/30 inline-block" />
+                        Page {pageNum}
+                      </div>
+                      <div
+                        className="rounded-lg border border-zinc-200/50 dark:border-zinc-800/50 bg-zinc-50/30 dark:bg-zinc-900/10 w-full flex-1"
+                        style={{ minHeight: 400 }}
+                      />
+                    </div>
+                  );
+                })
+              ) : (
+                // ── Single Page Mode ──
+                <PDFPageItem
+                  key={currentPage}
+                  pageNum={currentPage}
+                  {...sharedItemProps}
+                />
+              )}
             </div>
           )}
         </div>
@@ -655,7 +784,10 @@ export default function PDFReader({
               Note — Page {selectedNote.page}
             </span>
             <button
-              onClick={() => setSelectedNote(null)}
+              onClick={() => {
+                setSelectedNote(null);
+                onClearSelectedNoteId?.();
+              }}
               className="p-1 text-zinc-400 hover:bg-(--color-surface-container-high) rounded"
             >
               <X size={13} />
@@ -666,16 +798,19 @@ export default function PDFReader({
           </p>
           <div className="flex items-center justify-between mt-4 pt-2 border-t border-(--color-outline-variant)">
             <span className="text-[10px] font-mono text-zinc-400">
-              {new Date(selectedNote.createdAt).toLocaleDateString()}
+              {selectedNote.createdAt && !isNaN(new Date(selectedNote.createdAt).getTime())
+                ? new Date(selectedNote.createdAt).toLocaleDateString()
+                : 'Just now'}
             </span>
             <button
               onClick={() => {
                 if (window.confirm('Delete note?')) {
                   onDeleteNote(selectedNote.id);
                   setSelectedNote(null);
+                  onClearSelectedNoteId?.();
                 }
               }}
-              className="text-xs text-red-500 hover:text-red-600 flex items-center gap-1 font-medium"
+              className="text-xs text-red-500 hover:text-red-600 flex items-center gap-1 font-medium cursor-pointer"
             >
               <Trash2 size={12} /> Delete
             </button>

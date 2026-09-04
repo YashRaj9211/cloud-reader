@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import * as pdfjsLib from 'pdfjs-dist';
 
 interface ThumbnailSidebarProps {
   pdf: any; // pdfjs PDFDocumentProxy
@@ -15,6 +14,12 @@ interface ThumbnailEntry {
   rendering: boolean;
 }
 
+// Polyfill requestIdleCallback for Safari/older browsers
+const scheduleIdle =
+  typeof window !== 'undefined' && 'requestIdleCallback' in window
+    ? (cb: () => void) => (window as any).requestIdleCallback(cb, { timeout: 2000 })
+    : (cb: () => void) => setTimeout(cb, 32);
+
 export default function ThumbnailSidebar({
   pdf,
   totalPages,
@@ -25,6 +30,7 @@ export default function ThumbnailSidebar({
   const [thumbnails, setThumbnails] = useState<ThumbnailEntry[]>([]);
   const observerRef = useRef<IntersectionObserver | null>(null);
   const thumbRefs = useRef<(HTMLDivElement | null)[]>([]);
+  // Track pages that are queued or already rendered — prevents duplicate work
   const renderQueue = useRef<Set<number>>(new Set());
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -41,34 +47,41 @@ export default function ThumbnailSidebar({
   }, [pdf, totalPages]);
 
   const renderThumbnail = useCallback(
-    async (pageNum: number) => {
+    (pageNum: number) => {
       if (!pdf || renderQueue.current.has(pageNum)) return;
       renderQueue.current.add(pageNum);
 
-      try {
-        const page = await pdf.getPage(pageNum);
-        const viewport = page.getViewport({ scale: 0.2 });
-        const canvas = document.createElement('canvas');
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-        const ctx = canvas.getContext('2d')!;
-        
-        // Paint white background so transparency doesn't turn black in JPEG output
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        
-        await page.render({ canvasContext: ctx, viewport }).promise;
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+      // Defer to idle time so thumbnails don't compete with main page rendering
+      scheduleIdle(async () => {
+        try {
+          const page = await pdf.getPage(pageNum);
+          // Render at 0.2 scale — tiny canvas, sufficient for sidebar preview
+          const viewport = page.getViewport({ scale: 0.2 });
+          const canvas = document.createElement('canvas');
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          const ctx = canvas.getContext('2d')!;
 
-        setThumbnails((prev) =>
-          prev.map((t) =>
-            t.page === pageNum ? { ...t, dataUrl, rendering: false } : t
-          )
-        );
-      } catch {
-        // silently fail for individual page errors
-        renderQueue.current.delete(pageNum);
-      }
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+          await page.render({ canvasContext: ctx, viewport }).promise;
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.65);
+
+          // Release canvas backing memory immediately after converting to data URL
+          canvas.width = 0;
+          canvas.height = 0;
+
+          setThumbnails((prev) =>
+            prev.map((t) =>
+              t.page === pageNum ? { ...t, dataUrl, rendering: false } : t
+            )
+          );
+        } catch {
+          // Silently fail — the placeholder will remain visible
+          renderQueue.current.delete(pageNum);
+        }
+      });
     },
     [pdf]
   );
@@ -89,7 +102,7 @@ export default function ThumbnailSidebar({
           if (entry.isIntersecting) {
             renderThumbnail(pageNum);
           } else {
-            // Evict thumbnail image data URL from memory when scrolled out of view
+            // Evict data URL when scrolled far out of view to free memory
             setThumbnails((prev) =>
               prev.map((t) =>
                 t.page === pageNum && t.dataUrl ? { ...t, dataUrl: null } : t
@@ -99,9 +112,10 @@ export default function ThumbnailSidebar({
           }
         });
       },
-      { 
-        rootMargin: '400px 0px',
-        threshold: 0.0 
+      {
+        // Load thumbnails 600px before they scroll into view
+        rootMargin: '600px 0px',
+        threshold: 0.0,
       }
     );
 
@@ -118,16 +132,15 @@ export default function ThumbnailSidebar({
     if (activeRef.current && containerRef.current) {
       const container = containerRef.current;
       const target = activeRef.current;
-      
+
       const containerRect = container.getBoundingClientRect();
       const targetRect = target.getBoundingClientRect();
-      
-      // Only scroll if it's outside the visible bounds
+
       if (targetRect.top < containerRect.top || targetRect.bottom > containerRect.bottom) {
         const offset = targetRect.top - containerRect.top;
         container.scrollTo({
           top: container.scrollTop + offset - 20,
-          behavior: 'smooth'
+          behavior: 'smooth',
         });
       }
     }

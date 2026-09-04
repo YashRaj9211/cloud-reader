@@ -273,3 +273,144 @@
   scrollbar-width: none;
 }
 
+/* ── PDF.js v5 Text Layer ─────────────────────────────────────────────────── */
+/*
+ * These rules MUST exist globally (not scoped) because TextLayer injects
+ * DOM nodes directly into the container div. They mirror the subset of
+ * pdfjs-dist/web/pdf_viewer.css that is required for standalone TextLayer
+ * usage (no full PDFViewer wrapper needed).
+ */
+.textLayer {
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  opacity: 1;
+  line-height: 1;
+  text-size-adjust: none;
+  -webkit-text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  z-index: 5;
+  caret-color: transparent;
+  /* Required CSS variables — set inline by TextLayer constructor & our effect */
+  --total-scale-factor: 1;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+}
+
+/* Force all text inside textLayer to be strictly transparent at all times */
+.textLayer,
+.textLayer *,
+.textLayer span,
+.textLayer :is(span, br) {
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
+}
+
+/* Each text-run span is transparent and positioned absolutely */
+.textLayer > :not(.markedContent),
+.textLayer .markedContent span:not(.markedContent) {
+  z-index: 1;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+  --font-height: 0;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  --scale-x: 1;
+  --rotate: 0deg;
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+
+.textLayer :is(span, br) {
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+}
+
+.textLayer .markedContent {
+  display: contents;
+}
+
+/* Native text selection highlight — ONLY the selection rectangle should be visible;
+   text glyphs MUST remain completely transparent to prevent duplicate text overlay */
+.textLayer ::-moz-selection,
+.textLayer *::-moz-selection,
+.textLayer ::selection,
+.textLayer *::selection {
+  background: rgba(0, 102, 255, 0.3) !important;
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
+  text-shadow: none !important;
+}
+
+.dark .textLayer ::-moz-selection,
+.dark .textLayer *::-moz-selection,
+.dark .textLayer ::selection,
+.dark .textLayer *::selection {
+  background: rgba(96, 165, 250, 0.45) !important;
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
+  text-shadow: none !important;
+}
+
+.textLayer br::-moz-selection,
+.textLayer br::selection {
+  background: transparent !important;
+}
+
+/* endOfContent spacer – appended by TextLayer for correct selection end */
+.textLayer .endOfContent {
+  display: block;
+  position: absolute;
+  inset: 100% 0 0;
+  z-index: 0;
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* ── Text-Selection Action Bar ───────────────────────────────────────────── */
+.text-selection-bar {
+  position: absolute;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border-radius: 8px;
+  background: #1c1c1e;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.35);
+  pointer-events: auto;
+  animation: selbar-in 120ms ease-out;
+}
+@keyframes selbar-in {
+  from { opacity: 0; transform: translateY(4px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.text-selection-bar button {
+  padding: 3px 9px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  transition: background 120ms;
+  background: transparent;
+}
+.text-selection-bar button:hover {
+  background: rgba(255,255,255,0.12);
+}
+.text-selection-bar .selbar-highlight { color: #fa5d19; }
+.text-selection-bar .selbar-copy      { color: #a3e635; }
+.text-selection-bar .selbar-note      { color: #60a5fa; }
+.text-selection-bar .selbar-sep {
+  width: 1px;
+  height: 16px;
+  background: rgba(255,255,255,0.18);
+  margin: 0 2px;
+}

@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import * as pdfjsLib from 'pdfjs-dist';
 import {
   Highlight,
   StickyNote,
@@ -9,7 +10,7 @@ import {
 } from '../types';
 import { Trash2, X, MessageSquare } from 'lucide-react';
 
-export type ToolMode = 'view' | 'highlight' | 'note' |  'ink' | 'eraser' | 'shape' | 'textbox';
+export type ToolMode = 'view' | 'highlight' | 'note' | 'ink' | 'eraser' | 'shape' | 'textbox';
 
 export interface AnnotationData {
   highlights: Highlight[];
@@ -48,13 +49,51 @@ interface PDFPageItemProps extends AnnotationData, AnnotationHandlers {
   onSelectShapeId: (id: string | null) => void;
   onSelectNote: (note: StickyNote | null) => void;
   scrollContainer?: HTMLElement | null;
+  /** Optional callback so parent can cache exact page dimensions for spacers */
+  onPageSizeChange?: (pageNum: number, size: { w: number; h: number }) => void;
 }
 
 function pxToPercent(val: number, total: number) {
   return (val / total) * 100;
 }
 
-export default function PDFPageItem({
+// ── Detect mobile/low-end device ───────────────────────────────────────────
+function getCapDPR(): number {
+  if (typeof window === 'undefined') return 1;
+  const isMobile = window.innerWidth < 768;
+  // Use lower DPR cap on mobile to avoid giant canvases
+  const cap = isMobile ? 1.5 : 2.0;
+  return Math.min(Math.max(window.devicePixelRatio || 1, 1), cap);
+}
+
+// ── Page-level render task manager ─────────────────────────────────────────
+// Shared map so that even during React StrictMode double-invoke, we can cancel
+// the previous task before starting a new one.
+const activeRenderTasks = new Map<string, { cancel: () => void }>();
+
+function cancelRenderTask(key: string) {
+  const task = activeRenderTasks.get(key);
+  if (task) {
+    task.cancel();
+    activeRenderTasks.delete(key);
+  }
+}
+
+// ── Text layer task manager ──────────────────────────────────────────────────
+// Cancellable TextLayer instance per page, keyed the same way as canvas tasks.
+const activeTextTasks = new Map<string, { cancel: () => void }>();
+
+function cancelTextTask(key: string) {
+  const task = activeTextTasks.get(key);
+  if (task) {
+    try { task.cancel(); } catch { /* ignore */ }
+    activeTextTasks.delete(key);
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+
+function PDFPageItemInner({
   pdf,
   pageNum,
   zoom,
@@ -84,15 +123,20 @@ export default function PDFPageItem({
   onSelectShapeId,
   onSelectNote,
   scrollContainer,
+  onPageSizeChange,
 }: PDFPageItemProps) {
   const pageContainerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const inkCanvasRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
+  /** Div that PDF.js TextLayer populates with transparent, selectable spans */
+  const textLayerRef = useRef<HTMLDivElement>(null);
 
+  // IntersectionObserver visibility — uses a tight margin for actual DOM render
   const [isVisible, setIsVisible] = useState(false);
   const [pageSize, setPageSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
+
   // Track whether this page has EVER been rendered. Once true, never show the
   // loading skeleton again — a stale canvas is far better than a blank block.
   const hasEverRendered = useRef(false);
@@ -118,28 +162,65 @@ export default function PDFPageItem({
   const [noteText, setNoteText] = useState('');
   const [activeTextBox, setActiveTextBox] = useState<{ x: number; y: number; text: string } | null>(null);
 
-  // 1. Intersection Observer for lazy rendering
-  // Use a very large margin so pages are preloaded well before they scroll into
-  // view, and their canvases are kept alive long after they scroll out. This
-  // prevents users from seeing blank blocks when scrolling quickly.
+  // ── Text-selection action bar state ──────────────────────────────────────
+  interface SelectionBar {
+    /** Percentages relative to the page container */
+    x: number;
+    y: number;
+    text: string;
+    /** Raw DOMRects for Highlight creation */
+    rects: DOMRect[];
+  }
+  const [selectionBar, setSelectionBar] = useState<SelectionBar | null>(null);
+
+  // Unique render task key for this page instance
+  const renderTaskKey = `page-${pageNum}`;
+
+  // ── 1. IntersectionObserver — tight margin for rendering, wide for keeping alive ──
   useEffect(() => {
     const el = pageContainerRef.current;
     if (!el) return;
 
     const observer = new IntersectionObserver(
       ([entry]) => {
-        setIsVisible(entry.isIntersecting);
+        const visible = entry.isIntersecting;
+        setIsVisible(visible);
+
+        // When page moves far out of view, evict canvas AND text layer memory
+        if (!visible && hasEverRendered.current) {
+          const canvas = canvasRef.current;
+          if (canvas) {
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              ctx.clearRect(0, 0, canvas.width, canvas.height);
+            }
+            // Release backing store memory by zeroing dimensions
+            canvas.width = 0;
+            canvas.height = 0;
+          }
+          // Cancel any in-flight render task
+          cancelRenderTask(renderTaskKey);
+          // Evict text layer DOM & cancel in-flight text task
+          cancelTextTask(renderTaskKey);
+          if (textLayerRef.current) {
+            textLayerRef.current.innerHTML = '';
+          }
+          // Hide selection bar if shown for this page
+          setSelectionBar(null);
+        }
       },
       {
-        rootMargin: '3000px 0px',
+        // Preload pages 1000px above/below viewport; evict immediately after that window
+        rootMargin: '1000px 0px',
       }
     );
 
     observer.observe(el);
     return () => observer.disconnect();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 2. Compute aspect ratio / initial dimension placeholder
+  // ── 2. Compute aspect ratio / initial dimension placeholder ───────────────
   useEffect(() => {
     if (!pdf) return;
     let isMounted = true;
@@ -160,22 +241,25 @@ export default function PDFPageItem({
     };
   }, [pdf, pageNum, zoom, containerWidth]);
 
-  // 3. Render canvas when visible
+  // ── 3. Render canvas when visible ─────────────────────────────────────────
   useEffect(() => {
     if (!pdf || !isVisible || !canvasRef.current) return;
-    let renderTask: any = null;
+
     let isCancelled = false;
+
+    // Cancel any previous in-flight render for this page
+    cancelRenderTask(renderTaskKey);
 
     pdf.getPage(pageNum).then((page: any) => {
       if (isCancelled) return;
 
-      const dpr = typeof window !== 'undefined' ? Math.min(Math.max(window.devicePixelRatio || 1, 1.5), 2.5) : 1;
+      const dpr = getCapDPR();
       const unscaled = page.getViewport({ scale: 1.0 });
       const effectiveWidth = containerWidth > 0 ? containerWidth : 800;
       const marginOffset = typeof window !== 'undefined' && window.innerWidth < 768 ? 16 : 48;
       const widthScale = Math.max(0.1, (effectiveWidth - marginOffset) / unscaled.width);
       const displayScale = widthScale * zoom;
-      
+
       const cssVp = page.getViewport({ scale: displayScale });
       const renderVp = page.getViewport({ scale: displayScale * dpr });
 
@@ -185,26 +269,40 @@ export default function PDFPageItem({
       const cssW = Math.floor(cssVp.width);
       const cssH = Math.floor(cssVp.height);
 
-      // Hi-DPI backing store dimensions
-      canvas.width = Math.floor(renderVp.width);
-      canvas.height = Math.floor(renderVp.height);
+      // Only resize canvas if dimensions actually changed (avoid expensive realloc)
+      const newW = Math.floor(renderVp.width);
+      const newH = Math.floor(renderVp.height);
+      if (canvas.width !== newW) canvas.width = newW;
+      if (canvas.height !== newH) canvas.height = newH;
 
       if (inkCanvasRef.current) {
-        inkCanvasRef.current.width = cssW;
-        inkCanvasRef.current.height = cssH;
+        if (inkCanvasRef.current.width !== cssW) inkCanvasRef.current.width = cssW;
+        if (inkCanvasRef.current.height !== cssH) inkCanvasRef.current.height = cssH;
       }
 
       const ctx = canvas.getContext('2d');
       if (!ctx || isCancelled) return;
 
-      renderTask = page.render({ canvasContext: ctx, viewport: renderVp });
-      renderTask.promise.then(() => {
+      const task = page.render({ canvasContext: ctx, viewport: renderVp });
+
+      // Register in the global task map so the next effect cleanup can cancel it
+      activeRenderTasks.set(renderTaskKey, {
+        cancel: () => {
+          try { task.cancel(); } catch { /* ignore */ }
+        },
+      });
+
+      task.promise.then(() => {
         if (!isCancelled) {
+          activeRenderTasks.delete(renderTaskKey);
           hasEverRendered.current = true;
           setRendered(true);
-          setPageSize({ w: cssW, h: cssH });
+          const newSize = { w: cssW, h: cssH };
+          setPageSize(newSize);
+          onPageSizeChange?.(pageNum, newSize);
         }
       }).catch((err: any) => {
+        activeRenderTasks.delete(renderTaskKey);
         if (err && err.name !== 'RenderingCancelledException') {
           console.error(`Page ${pageNum} render error:`, err);
         }
@@ -213,14 +311,137 @@ export default function PDFPageItem({
 
     return () => {
       isCancelled = true;
-      if (renderTask) renderTask.cancel();
+      cancelRenderTask(renderTaskKey);
       // Do NOT reset rendered or zero canvas dimensions here.
       // Keeping the stale canvas visible prevents blank blocks from appearing
       // while the page is being re-rendered after scrolling back into view.
-      // The canvas will simply be overwritten on the next successful render.
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pdf, pageNum, zoom, containerWidth, isVisible]);
 
+  // ── 4. Render text layer when visible ─────────────────────────────────────
+  // Runs independently of the canvas render. A cancellable TextLayer instance
+  // streams text spans into textLayerRef and positions them with CSS variables
+  // that match the CSS viewport (cssVp), so text aligns with the rendered PDF.
+  useEffect(() => {
+    const container = textLayerRef.current;
+    if (!pdf || !isVisible || !container) return;
+
+    let isCancelled = false;
+
+    // Cancel any in-flight text task for this page before starting a new one
+    cancelTextTask(renderTaskKey);
+
+    pdf.getPage(pageNum).then((page: any) => {
+      if (isCancelled || !textLayerRef.current) return;
+
+      const unscaled = page.getViewport({ scale: 1.0 });
+      const effectiveWidth = containerWidth > 0 ? containerWidth : 800;
+      const marginOffset = typeof window !== 'undefined' && window.innerWidth < 768 ? 16 : 48;
+      const widthScale = Math.max(0.1, (effectiveWidth - marginOffset) / unscaled.width);
+      const displayScale = widthScale * zoom;
+      const cssVp = page.getViewport({ scale: displayScale });
+
+      // Clear previous text layer content
+      container.innerHTML = '';
+
+      // Provide --scale-factor so setLayerDimensions (called inside TextLayer
+      // constructor) can derive --total-scale-factor = scale-factor * user-unit
+      container.style.setProperty('--scale-factor', String(displayScale));
+      // total-scale-factor: PDF.js web/pdf_viewer.css defines this as
+      // calc(var(--scale-factor) * var(--user-unit)), but we're not using the
+      // full web viewer wrapper, so set it directly.
+      container.style.setProperty('--total-scale-factor', String(displayScale));
+
+      const textLayer = new pdfjsLib.TextLayer({
+        textContentSource: page.streamTextContent(),
+        container,
+        viewport: cssVp,
+      });
+
+      activeTextTasks.set(renderTaskKey, {
+        cancel: () => { try { textLayer.cancel(); } catch { /* ignore */ } },
+      });
+
+      textLayer.render().then(() => {
+        if (!isCancelled) {
+          activeTextTasks.delete(renderTaskKey);
+        }
+      }).catch((err: any) => {
+        activeTextTasks.delete(renderTaskKey);
+        if (err && err.name !== 'AbortException' && err.message !== 'TextLayer task cancelled.') {
+          console.error(`Page ${pageNum} text layer error:`, err);
+        }
+      });
+    }).catch(console.error);
+
+    return () => {
+      isCancelled = true;
+      cancelTextTask(renderTaskKey);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pdf, pageNum, zoom, containerWidth, isVisible]);
+
+  // ── 5. Text-selection listener ────────────────────────────────────────────
+  // In view mode, listens for mouseup events on the text layer and computes the
+  // selection bounds as page-relative percentages to show the action bar.
+  const handleTextLayerMouseUp = useCallback(() => {
+    if (toolMode !== 'view') return;
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || !sel.toString().trim()) {
+      setSelectionBar(null);
+      return;
+    }
+    const container = textLayerRef.current;
+    if (!container) { setSelectionBar(null); return; }
+
+    // Ensure the selection is actually within this page's text layer
+    const anchorNode = sel.anchorNode;
+    if (!anchorNode || !container.contains(anchorNode)) {
+      setSelectionBar(null);
+      return;
+    }
+
+    const range = sel.getRangeAt(0);
+    const rects = Array.from(range.getClientRects());
+    if (rects.length === 0) { setSelectionBar(null); return; }
+
+    const pageBox = container.getBoundingClientRect();
+    // Position the bar just above the first (topmost) rect of the selection
+    const topRect = rects.reduce((a, b) => a.top < b.top ? a : b);
+    const barX = ((topRect.left + topRect.right) / 2 - pageBox.left) / pageBox.width * 100;
+    const barY = (topRect.top - pageBox.top) / pageBox.height * 100;
+
+    setSelectionBar({
+      x: Math.min(Math.max(barX, 5), 95),
+      y: Math.max(barY - 5, 1), // 5% above the selection, at least 1%
+      text: sel.toString(),
+      rects,
+    });
+  }, [toolMode]);
+
+  // ── Clear selection bar when tool mode changes or selection collapses ──────
+  useEffect(() => {
+    setSelectionBar(null);
+    if (toolMode !== 'view') {
+      window.getSelection()?.removeAllRanges();
+    }
+  }, [toolMode]);
+
+  useEffect(() => {
+    const handleSelectionChange = () => {
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed || !sel.toString().trim()) {
+        setSelectionBar(null);
+      }
+    };
+    document.addEventListener('selectionchange', handleSelectionChange);
+    return () => {
+      document.removeEventListener('selectionchange', handleSelectionChange);
+    };
+  }, []);
+
+  // ── Filtered annotation data for this page ─────────────────────────────────
   const pageHighlights = highlights.filter((h) => h.page === pageNum);
   const pageNotes = notes.filter((n) => n.page === pageNum);
   const pageInkStrokes = inkStrokes.filter((s) => s.page === pageNum);
@@ -273,7 +494,7 @@ export default function PDFPageItem({
     ctx.clearRect(0, 0, canvas.width, canvas.height);
   };
 
-  // Unified Stroke handlers (Ink & Highlight)
+  // ── Unified Stroke handlers (Ink & Highlight) ─────────────────────────────
   const isHighlighter = toolMode === 'highlight';
   const currentStrokeWidth = isHighlighter ? hlWidth : inkWidth;
   const currentOpacity = isHighlighter ? 0.35 : 1.0;
@@ -299,6 +520,7 @@ export default function PDFPageItem({
     const rect = overlayRef.current.getBoundingClientRect();
     if (inkPointsRef.current.length > 1) {
       onAddInkStroke({
+        id: `ink-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
         page: pageNum,
         points: inkPointsRef.current.map((p) => ({
           x: pxToPercent(p.x, rect.width),
@@ -308,12 +530,13 @@ export default function PDFPageItem({
         width: currentStrokeWidth,
         opacity: currentOpacity,
         isHighlight: isHighlighter,
-      });
+        createdAt: new Date().toISOString(),
+      } as any);
     }
     inkPointsRef.current = [];
   };
 
-  // Eraser
+  // ── Eraser ────────────────────────────────────────────────────────────────
   const onEraserDown = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>) => {
     const { x, y } = getRelPos(e);
     setEraserActive(true);
@@ -328,7 +551,7 @@ export default function PDFPageItem({
     eraserPathRef.current.push({ x, y });
   };
 
-  const onEraserUp = () => {
+  const onEraserUp = useCallback(() => {
     if (!eraserActive || !overlayRef.current) return;
     setEraserActive(false);
     const rect = overlayRef.current.getBoundingClientRect();
@@ -355,14 +578,14 @@ export default function PDFPageItem({
 
     strokesToDelete.forEach((s) => onDeleteInkStroke(s.id));
     eraserPathRef.current = [];
-  };
+  }, [eraserActive, pageInkStrokes, onDeleteInkStroke]);
 
   const onEraserLeave = () => {
     setEraserPos(null);
     if (eraserActive) onEraserUp();
   };
 
-  // Shapes
+  // ── Shapes ────────────────────────────────────────────────────────────────
   const onShapeDown = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>) => {
     const { x, y } = getRelPos(e);
     setIsDrawing(true);
@@ -387,6 +610,7 @@ export default function PDFPageItem({
     const rect = overlayRef.current.getBoundingClientRect();
     if (dragRect.w > 5 && dragRect.h > 5) {
       onAddShape({
+        id: `shape-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
         page: pageNum,
         kind: activeShape,
         x: (dragRect.x / rect.width) * 100,
@@ -395,7 +619,8 @@ export default function PDFPageItem({
         height: (dragRect.h / rect.height) * 100,
         color: annotColor,
         strokeWidth: 2,
-      });
+        createdAt: new Date().toISOString(),
+      } as any);
     }
     setDragStart(null);
     setDragRect(null);
@@ -425,7 +650,6 @@ export default function PDFPageItem({
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => handlePointerAction(e, 'move');
   const handleMouseUp = () => handlePointerAction({} as any, 'up');
 
-  // Touch handlers for mobile & tablet
   const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
     if (toolMode === 'view') return;
     e.preventDefault();
@@ -477,7 +701,17 @@ export default function PDFPageItem({
 
   const handleSaveNote = () => {
     if (!notePopup || !noteText.trim()) return;
-    onAddNote({ page: pageNum, x: notePopup.x, y: notePopup.y, color: '#f59e0b', text: noteText.trim() });
+    const now = new Date().toISOString();
+    const id = `note-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    onAddNote({
+      id,
+      page: pageNum,
+      x: notePopup.x,
+      y: notePopup.y,
+      color: '#f59e0b',
+      text: noteText.trim(),
+      createdAt: now,
+    } as any);
     setNotePopup(null);
     setNoteText('');
   };
@@ -487,14 +721,18 @@ export default function PDFPageItem({
       setActiveTextBox(null);
       return;
     }
+    const now = new Date().toISOString();
+    const id = `tb-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
     onAddTextBox({
+      id,
       page: pageNum,
       x: activeTextBox.x,
       y: activeTextBox.y,
       text: activeTextBox.text.trim(),
       color: annotColor,
       fontSize: 13,
-    });
+      createdAt: now,
+    } as any);
     setActiveTextBox(null);
   };
 
@@ -627,6 +865,65 @@ export default function PDFPageItem({
       ? { cursor: 'text' }
       : { cursor: 'crosshair' };
 
+  // In view mode the overlay is invisible to pointer events so the text layer
+  // underneath can receive mouse/touch for native text selection.
+  const overlayPointerEvents: React.CSSProperties =
+    toolMode === 'view' ? { pointerEvents: 'none' } : { pointerEvents: 'auto' };
+
+  // ── Highlight from text selection ─────────────────────────────────────────
+  const handleSelectionHighlight = useCallback(() => {
+    if (!selectionBar || !textLayerRef.current) return;
+    const pageBox = textLayerRef.current.getBoundingClientRect();
+    const pw = pageBox.width;
+    const ph = pageBox.height;
+
+    // Merge all rects into a single bounding box (simplest correct approach)
+    const merged = selectionBar.rects.reduce(
+      (acc, r) => ({
+        left: Math.min(acc.left, r.left),
+        top: Math.min(acc.top, r.top),
+        right: Math.max(acc.right, r.right),
+        bottom: Math.max(acc.bottom, r.bottom),
+      }),
+      { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity }
+    );
+
+    const x = ((merged.left - pageBox.left) / pw) * 100;
+    const y = ((merged.top - pageBox.top) / ph) * 100;
+    const width = ((merged.right - merged.left) / pw) * 100;
+    const height = ((merged.bottom - merged.top) / ph) * 100;
+
+    onAddHighlight({
+      id: `hl-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      page: pageNum,
+      x: Math.max(0, x),
+      y: Math.max(0, y),
+      width: Math.min(100 - Math.max(0, x), width),
+      height: Math.min(100 - Math.max(0, y), height),
+      color: 'rgba(250,200,0,0.35)',
+      text: selectionBar.text,
+      createdAt: new Date().toISOString(),
+    } as any);
+
+    window.getSelection()?.removeAllRanges();
+    setSelectionBar(null);
+  }, [selectionBar, pageNum, onAddHighlight]);
+
+  const handleSelectionCopy = useCallback(() => {
+    if (!selectionBar) return;
+    navigator.clipboard.writeText(selectionBar.text).catch(console.error);
+    window.getSelection()?.removeAllRanges();
+    setSelectionBar(null);
+  }, [selectionBar]);
+
+  const handleSelectionNote = useCallback(() => {
+    if (!selectionBar) return;
+    setNotePopup({ x: selectionBar.x, y: selectionBar.y });
+    setNoteText(selectionBar.text);
+    window.getSelection()?.removeAllRanges();
+    setSelectionBar(null);
+  }, [selectionBar]);
+
   return (
     <div
       ref={pageContainerRef}
@@ -640,7 +937,7 @@ export default function PDFPageItem({
       </div>
 
       <div
-        className="relative select-none rounded-lg shadow-xl border border-zinc-200 dark:border-zinc-800 bg-white transition-all overflow-hidden"
+        className="relative rounded-lg shadow-xl border border-zinc-200 dark:border-zinc-800 bg-white transition-all overflow-hidden"
         style={{
           width: pageSize.w > 0 ? pageSize.w : '100%',
           height: pageSize.h > 0 ? pageSize.h : 900,
@@ -664,6 +961,38 @@ export default function PDFPageItem({
             height: pageSize.h > 0 ? pageSize.h : 'auto',
           }}
         />
+
+        {/* 1b ── Text Layer — transparent, selectable spans from PDF.js TextLayer */}
+        {/* z-index: 5 (defined in .textLayer CSS), above canvas (0), below SVG (10) */}
+        <div
+          ref={textLayerRef}
+          className="textLayer selection:text-transparent"
+          onMouseUp={handleTextLayerMouseUp}
+        />
+
+        {/* Selection Action Bar */}
+        {selectionBar && toolMode === 'view' && (
+          <div
+            className="text-selection-bar"
+            style={{
+              left: `${selectionBar.x}%`,
+              top: `calc(${selectionBar.y}% - 36px)`,
+              transform: 'translateX(-50%)',
+            }}
+          >
+            <button className="selbar-highlight" title="Highlight selected text" onClick={handleSelectionHighlight}>
+              ✦ Highlight
+            </button>
+            <div className="selbar-sep" />
+            <button className="selbar-copy" title="Copy selected text" onClick={handleSelectionCopy}>
+              ⌘ Copy
+            </button>
+            <div className="selbar-sep" />
+            <button className="selbar-note" title="Add note from selection" onClick={handleSelectionNote}>
+              ✎ Note
+            </button>
+          </div>
+        )}
 
         {/* 2 ── SVG Annotation Layer */}
         {pageSize.w > 0 && (
@@ -712,6 +1041,7 @@ export default function PDFPageItem({
         />
 
         {/* 4 ── Interactive Overlay */}
+        {/* pointer-events: none in view mode — lets the text layer receive events for selection */}
         <div
           ref={overlayRef}
           onMouseDown={handleMouseDown}
@@ -722,8 +1052,8 @@ export default function PDFPageItem({
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
           onClick={handleOverlayClick}
-          className={`absolute inset-0 z-30 ${toolMode !== 'view' ? 'touch-drawing-surface' : ''}`}
-          style={cursorStyle}
+          className={`absolute inset-0 z-30 ${toolMode !== 'view' ? 'touch-drawing-surface select-none' : ''}`}
+          style={{ ...cursorStyle, ...overlayPointerEvents }}
         >
           {/* Eraser cursor ring */}
           {toolMode === 'eraser' && eraserPos && (
@@ -784,8 +1114,8 @@ export default function PDFPageItem({
                 e.stopPropagation();
                 onSelectNote(note);
               }}
-              className="absolute z-40 p-1.5 rounded-full bg-[#fa5d19] hover:bg-[#ff7a3d] border-2 border-white text-white shadow-md cursor-pointer transition-transform hover:scale-110"
-              style={{ left: `${note.x}%`, top: `${note.y}%`, transform: 'translate(-50%,-50%)' }}
+              className="absolute z-40 p-1.5 rounded-full bg-[#fa5d19] hover:bg-[#ff7a3d] border-2 border-white text-white shadow-md cursor-pointer transition-transform hover:scale-110 pointer-events-auto"
+              style={{ left: `${note.x}%`, top: `${note.y}%`, transform: 'translate(-50%,-50%)', pointerEvents: 'auto' }}
               title="Click to view note"
             >
               <MessageSquare size={12} className="fill-white" />
@@ -796,8 +1126,8 @@ export default function PDFPageItem({
           {pageTextBoxes.map((tb) => (
             <div
               key={tb.id}
-              className="absolute z-40 group"
-              style={{ left: `${tb.x}%`, top: `${tb.y}%` }}
+              className="absolute z-40 group pointer-events-auto"
+              style={{ left: `${tb.x}%`, top: `${tb.y}%`, pointerEvents: 'auto' }}
             >
               <div
                 className="px-1.5 py-0.5 rounded border text-xs whitespace-pre-wrap max-w-50 shadow-sm"
@@ -815,7 +1145,7 @@ export default function PDFPageItem({
                   e.stopPropagation();
                   onDeleteTextBox(tb.id);
                 }}
-                className="absolute -top-2 -right-2 p-0.5 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                className="absolute -top-2 -right-2 p-0.5 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
               >
                 <X size={8} />
               </button>
@@ -826,14 +1156,24 @@ export default function PDFPageItem({
           {notePopup && (
             <div
               onClick={(e) => e.stopPropagation()}
-              className="absolute z-50 p-4 w-60 rounded-xl shadow-xl border border-(--color-outline-variant) bg-(--color-surface) text-(--color-on-surface)"
-              style={{ left: `${notePopup.x}%`, top: `${notePopup.y}%` }}
+              onMouseDown={(e) => e.stopPropagation()}
+              className="absolute z-50 p-4 w-64 rounded-xl shadow-2xl border border-(--color-outline-variant) bg-(--color-surface) text-(--color-on-surface) pointer-events-auto"
+              style={{
+                left: `${Math.max(2, Math.min(notePopup.x, 70))}%`,
+                top: `${Math.max(2, Math.min(notePopup.y, 80))}%`,
+                pointerEvents: 'auto',
+              }}
             >
               <div className="flex items-center justify-between mb-2">
                 <span className="text-[11px] font-semibold text-zinc-500">Add Sticky Note</span>
                 <button
-                  onClick={() => setNotePopup(null)}
-                  className="p-1 rounded hover:bg-(--color-surface-container-high) text-zinc-400"
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setNotePopup(null);
+                    setNoteText('');
+                  }}
+                  className="p-1 rounded hover:bg-(--color-surface-container-high) text-zinc-400 cursor-pointer"
                 >
                   <X size={12} />
                 </button>
@@ -843,20 +1183,39 @@ export default function PDFPageItem({
                 placeholder="Type your note…"
                 value={noteText}
                 onChange={(e) => setNoteText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                    e.preventDefault();
+                    handleSaveNote();
+                  } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    setNotePopup(null);
+                    setNoteText('');
+                  }
+                }}
                 className="input-field w-full text-xs p-2 resize-none"
                 autoFocus
               />
               <div className="flex justify-end gap-1.5 mt-2">
                 <button
-                  onClick={() => setNotePopup(null)}
-                  className="btn-secondary h-7! px-2.5! py-0! text-[11px]!"
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setNotePopup(null);
+                    setNoteText('');
+                  }}
+                  className="btn-secondary h-7! px-2.5! py-0! text-[11px]! cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
-                  onClick={handleSaveNote}
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleSaveNote();
+                  }}
                   disabled={!noteText.trim()}
-                  className="btn-primary h-7! px-2.5! py-0! text-[11px]!"
+                  className="btn-primary h-7! px-2.5! py-0! text-[11px]! cursor-pointer"
                 >
                   Save
                 </button>
@@ -868,8 +1227,13 @@ export default function PDFPageItem({
           {activeTextBox && (
             <div
               onClick={(e) => e.stopPropagation()}
-              className="absolute z-50"
-              style={{ left: `${activeTextBox.x}%`, top: `${activeTextBox.y}%` }}
+              onMouseDown={(e) => e.stopPropagation()}
+              className="absolute z-50 pointer-events-auto"
+              style={{
+                left: `${activeTextBox.x}%`,
+                top: `${activeTextBox.y}%`,
+                pointerEvents: 'auto',
+              }}
             >
               <textarea
                 rows={2}
@@ -899,3 +1263,7 @@ export default function PDFPageItem({
     </div>
   );
 }
+
+// ── React.memo: prevents re-render unless props that actually affect rendering change.
+// Annotation callbacks and color/tool state changes won't cause canvas re-renders.
+export default React.memo(PDFPageItemInner);

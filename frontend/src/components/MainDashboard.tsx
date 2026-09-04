@@ -1,4 +1,4 @@
-import React, { useEffect, useCallback } from 'react';
+import React, { useEffect, useCallback, useState, useMemo } from 'react';
 import {
   Menu,
   Tag,
@@ -56,11 +56,48 @@ export const MainDashboard: React.FC = () => {
 
   const currentBook = books.find((b) => b.id === activeBookId);
   const activeStats = activeBookId ? syncData.books[activeBookId] : null;
-  const currentHighlights = activeStats?.highlights || [];
-  const currentNotes = activeStats?.notes || [];
-  const currentInkStrokes = activeStats?.inkStrokes || [];
-  const currentShapes = activeStats?.shapes || [];
-  const currentTextBoxes = activeStats?.textBoxes || [];
+
+  const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
+
+  const currentHighlights = useMemo(() => {
+    return (activeStats?.highlights || []).map((h, idx) => ({
+      ...h,
+      id: h.id || `legacy-hl-${idx}-${h.page}`,
+      createdAt: h.createdAt || new Date().toISOString(),
+    }));
+  }, [activeStats?.highlights]);
+
+  const currentNotes = useMemo(() => {
+    return (activeStats?.notes || []).map((n, idx) => ({
+      ...n,
+      id: n.id || `legacy-note-${idx}-${n.page}-${n.x}`,
+      createdAt: n.createdAt || new Date().toISOString(),
+    }));
+  }, [activeStats?.notes]);
+
+  const currentInkStrokes = useMemo(() => {
+    return (activeStats?.inkStrokes || []).map((s, idx) => ({
+      ...s,
+      id: s.id || `legacy-ink-${idx}-${s.page}`,
+      createdAt: s.createdAt || new Date().toISOString(),
+    }));
+  }, [activeStats?.inkStrokes]);
+
+  const currentShapes = useMemo(() => {
+    return (activeStats?.shapes || []).map((s, idx) => ({
+      ...s,
+      id: s.id || `legacy-shape-${idx}-${s.page}`,
+      createdAt: s.createdAt || new Date().toISOString(),
+    }));
+  }, [activeStats?.shapes]);
+
+  const currentTextBoxes = useMemo(() => {
+    return (activeStats?.textBoxes || []).map((t, idx) => ({
+      ...t,
+      id: t.id || `legacy-tb-${idx}-${t.page}`,
+      createdAt: t.createdAt || new Date().toISOString(),
+    }));
+  }, [activeStats?.textBoxes]);
 
   // When viewMode switches to markdown or split, load markdown if not loaded yet
   useEffect(() => {
@@ -273,75 +310,97 @@ export const MainDashboard: React.FC = () => {
                   shapes={currentShapes}
                   textBoxes={currentTextBoxes}
                   onAddHighlight={(h: any) =>
-                    updateBookStats(activeBookId!, (p) => ({
-                      ...p,
-                      highlights: [...p.highlights, h],
-                      lastReadTime: new Date().toISOString(),
-                    }))
+                    updateBookStats(activeBookId!, (p) => {
+                      const id = h.id || `hl-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+                      const createdAt = h.createdAt || new Date().toISOString();
+                      return {
+                        ...p,
+                        highlights: [...p.highlights, { ...h, id, createdAt }],
+                        lastReadTime: new Date().toISOString(),
+                      };
+                    })
                   }
                   onDeleteHighlight={(id: string) =>
                     updateBookStats(activeBookId!, (p) => ({
                       ...p,
-                      highlights: p.highlights.filter((h) => h.id !== id),
+                      highlights: p.highlights.filter((h, idx) => (h.id || `legacy-hl-${idx}-${h.page}`) !== id),
                       lastReadTime: new Date().toISOString(),
                     }))
                   }
                   onAddNote={(n: any) =>
-                    updateBookStats(activeBookId!, (p) => ({
-                      ...p,
-                      notes: [...p.notes, n],
-                      lastReadTime: new Date().toISOString(),
-                    }))
+                    updateBookStats(activeBookId!, (p) => {
+                      const id = n.id || `note-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+                      const createdAt = n.createdAt || new Date().toISOString();
+                      return {
+                        ...p,
+                        notes: [...p.notes, { ...n, id, createdAt }],
+                        lastReadTime: new Date().toISOString(),
+                      };
+                    })
                   }
                   onDeleteNote={(id: string) =>
                     updateBookStats(activeBookId!, (p) => ({
                       ...p,
-                      notes: p.notes.filter((n) => n.id !== id),
+                      notes: p.notes.filter((n, idx) => (n.id || `legacy-note-${idx}-${n.page}-${n.x}`) !== id),
                       lastReadTime: new Date().toISOString(),
                     }))
                   }
                   onAddInkStroke={(s: any) =>
-                    updateBookStats(activeBookId!, (p) => ({
-                      ...p,
-                      inkStrokes: [...p.inkStrokes, s],
-                      lastReadTime: new Date().toISOString(),
-                    }))
+                    updateBookStats(activeBookId!, (p) => {
+                      const id = s.id || `ink-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+                      const createdAt = s.createdAt || new Date().toISOString();
+                      return {
+                        ...p,
+                        inkStrokes: [...p.inkStrokes, { ...s, id, createdAt }],
+                        lastReadTime: new Date().toISOString(),
+                      };
+                    })
                   }
                   onDeleteInkStroke={(id: string) =>
                     updateBookStats(activeBookId!, (p) => ({
                       ...p,
-                      inkStrokes: p.inkStrokes.filter((s) => s.id !== id),
+                      inkStrokes: p.inkStrokes.filter((s, idx) => (s.id || `legacy-ink-${idx}-${s.page}`) !== id),
                       lastReadTime: new Date().toISOString(),
                     }))
                   }
                   onAddShape={(s: any) =>
-                    updateBookStats(activeBookId!, (p) => ({
-                      ...p,
-                      shapes: [...p.shapes, s],
-                      lastReadTime: new Date().toISOString(),
-                    }))
+                    updateBookStats(activeBookId!, (p) => {
+                      const id = s.id || `shape-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+                      const createdAt = s.createdAt || new Date().toISOString();
+                      return {
+                        ...p,
+                        shapes: [...p.shapes, { ...s, id, createdAt }],
+                        lastReadTime: new Date().toISOString(),
+                      };
+                    })
                   }
                   onDeleteShape={(id: string) =>
                     updateBookStats(activeBookId!, (p) => ({
                       ...p,
-                      shapes: p.shapes.filter((s) => s.id !== id),
+                      shapes: p.shapes.filter((s, idx) => (s.id || `legacy-shape-${idx}-${s.page}`) !== id),
                       lastReadTime: new Date().toISOString(),
                     }))
                   }
                   onAddTextBox={(t: any) =>
-                    updateBookStats(activeBookId!, (p) => ({
-                      ...p,
-                      textBoxes: [...p.textBoxes, t],
-                      lastReadTime: new Date().toISOString(),
-                    }))
+                    updateBookStats(activeBookId!, (p) => {
+                      const id = t.id || `tb-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+                      const createdAt = t.createdAt || new Date().toISOString();
+                      return {
+                        ...p,
+                        textBoxes: [...p.textBoxes, { ...t, id, createdAt }],
+                        lastReadTime: new Date().toISOString(),
+                      };
+                    })
                   }
                   onDeleteTextBox={(id: string) =>
                     updateBookStats(activeBookId!, (p) => ({
                       ...p,
-                      textBoxes: p.textBoxes.filter((t) => t.id !== id),
+                      textBoxes: p.textBoxes.filter((t, idx) => (t.id || `legacy-tb-${idx}-${t.page}`) !== id),
                       lastReadTime: new Date().toISOString(),
                     }))
                   }
+                  selectedNoteId={selectedNoteId}
+                  onClearSelectedNoteId={() => setSelectedNoteId(null)}
                   onDocumentLoad={(totalPages: number) => {
                     if (activeBookId) {
                       updateBookStats(activeBookId, (p) => ({
@@ -415,39 +474,44 @@ export const MainDashboard: React.FC = () => {
             inkStrokes={currentInkStrokes}
             shapes={currentShapes}
             textBoxes={currentTextBoxes}
-            onPageSelect={handleChangePage}
+            onPageSelect={(pageNumber: number, noteId?: string) => {
+              handleChangePage(pageNumber);
+              if (noteId) {
+                setSelectedNoteId(noteId);
+              }
+            }}
             onDeleteHighlight={(id: string) =>
               updateBookStats(activeBookId, (p) => ({
                 ...p,
-                highlights: p.highlights.filter((h) => h.id !== id),
+                highlights: p.highlights.filter((h, idx) => (h.id || `legacy-hl-${idx}-${h.page}`) !== id),
                 lastReadTime: new Date().toISOString(),
               }))
             }
             onDeleteNote={(id: string) =>
               updateBookStats(activeBookId, (p) => ({
                 ...p,
-                notes: p.notes.filter((n) => n.id !== id),
+                notes: p.notes.filter((n, idx) => (n.id || `legacy-note-${idx}-${n.page}-${n.x}`) !== id),
                 lastReadTime: new Date().toISOString(),
               }))
             }
             onDeleteInkStroke={(id: string) =>
               updateBookStats(activeBookId, (p) => ({
                 ...p,
-                inkStrokes: p.inkStrokes.filter((s) => s.id !== id),
+                inkStrokes: p.inkStrokes.filter((s, idx) => (s.id || `legacy-ink-${idx}-${s.page}`) !== id),
                 lastReadTime: new Date().toISOString(),
               }))
             }
             onDeleteShape={(id: string) =>
               updateBookStats(activeBookId, (p) => ({
                 ...p,
-                shapes: p.shapes.filter((s) => s.id !== id),
+                shapes: p.shapes.filter((s, idx) => (s.id || `legacy-shape-${idx}-${s.page}`) !== id),
                 lastReadTime: new Date().toISOString(),
               }))
             }
             onDeleteTextBox={(id: string) =>
               updateBookStats(activeBookId, (p) => ({
                 ...p,
-                textBoxes: p.textBoxes.filter((t) => t.id !== id),
+                textBoxes: p.textBoxes.filter((t, idx) => (t.id || `legacy-tb-${idx}-${t.page}`) !== id),
                 lastReadTime: new Date().toISOString(),
               }))
             }

@@ -19,7 +19,7 @@ interface AnnotationPanelProps {
   inkStrokes: InkStroke[];
   shapes: ShapeAnnotation[];
   textBoxes: TextBox[];
-  onPageSelect: (pageNumber: number) => void;
+  onPageSelect: (pageNumber: number, noteId?: string) => void;
   onDeleteHighlight: (id: string) => void;
   onDeleteNote: (id: string) => void;
   onDeleteInkStroke: (id: string) => void;
@@ -140,7 +140,12 @@ export default function AnnotationPanel({
 
   const sorted = mergedAnnotations
     .filter((a) => a.text.toLowerCase().includes(search.toLowerCase()))
-    .sort((a, b) => (a.page !== b.page ? a.page - b.page : new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()));
+    .sort((a, b) => {
+      if (a.page !== b.page) return a.page - b.page;
+      const tA = a.createdAt && !isNaN(new Date(a.createdAt).getTime()) ? new Date(a.createdAt).getTime() : 0;
+      const tB = b.createdAt && !isNaN(new Date(b.createdAt).getTime()) ? new Date(b.createdAt).getTime() : 0;
+      return tA - tB;
+    });
 
   const handleDelete = (item: MergedEntry) => {
     if (!window.confirm('Delete this annotation?')) return;
@@ -184,38 +189,44 @@ export default function AnnotationPanel({
   ];
 
   return (
-    <div className="w-full sm:w-80 md:w-72 h-full flex flex-col border-l border-[var(--color-outline-variant)] bg-[var(--color-surface)] text-[var(--color-on-surface)] transition-colors duration-300">
+    <div
+      className={`w-72 h-full flex flex-col border-l border-[var(--color-outline-variant)] bg-[var(--color-surface)] text-[var(--color-on-surface)] select-none shadow-2xl transition-colors duration-200`}
+    >
       {/* Header */}
-      <div className="p-4 border-b border-[var(--color-outline-variant)] flex items-center justify-between">
+      <div className="p-4 pb-3 border-b border-[var(--color-outline-variant)] flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Tag className="text-[#fa5d19]" size={16} />
-          <h2 className="text-sm font-semibold tracking-tight">Annotations</h2>
-          <span className="badge-heat font-mono text-[10px] ml-1">
-            {sorted.length}
+          <Tag size={15} className="text-[#fa5d19]" />
+          <h2 className="text-xs font-bold uppercase tracking-wider text-[var(--color-on-surface)]">
+            Annotations
+          </h2>
+          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-[var(--color-surface-container-high)] text-zinc-400">
+            {mergedAnnotations.length}
           </span>
         </div>
-        
         {onClose && (
           <button
             onClick={onClose}
-            className="btn-secondary !h-8 !w-8 !p-0 md:hidden text-zinc-400 hover:text-[var(--color-on-surface)]"
-            title="Close annotations"
+            className="p-1 rounded-md text-zinc-400 hover:text-[var(--color-on-surface)] hover:bg-[var(--color-surface-container-high)] transition-colors"
           >
-            <X size={16} />
+            <X size={14} />
           </button>
         )}
       </div>
 
-      {/* Filters */}
-      <div className="p-3 space-y-2.5">
-        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
-          {filters.map(({ id, label }) => (
+      {/* Filter Tabs & Search */}
+      <div className="p-3 space-y-2 border-b border-[var(--color-outline-variant)] bg-[var(--color-surface-container-low)]">
+        <div className="flex items-center gap-1 bg-[var(--color-surface-container-high)] p-1 rounded-xl">
+          {filters.map((f) => (
             <button
-              key={id}
-              onClick={() => setFilter(id)}
-              className={`chip-tag !py-0.5 !px-2.5 !text-[11px] shrink-0 ${filter === id ? 'active' : ''}`}
+              key={f.id}
+              onClick={() => setFilter(f.id)}
+              className={`flex-1 py-1 text-[10px] font-bold rounded-lg transition-all ${
+                filter === f.id
+                  ? 'bg-[var(--color-surface)] text-[var(--color-on-surface)] shadow-xs'
+                  : 'text-zinc-400 hover:text-[var(--color-on-surface)]'
+              }`}
             >
-              {label}
+              {f.label}
             </button>
           ))}
         </div>
@@ -246,7 +257,7 @@ export default function AnnotationPanel({
           sorted.map((item) => (
             <div
               key={item.id}
-              onClick={() => onPageSelect(item.page)}
+              onClick={() => onPageSelect(item.page, item.type === 'note' ? item.id : undefined)}
               className="p-3 rounded-xl border border-[var(--color-outline-variant)] bg-[var(--color-surface-container-lowest)] hover:bg-[var(--color-surface-container-high)] relative text-left group cursor-pointer transition-all duration-150 shadow-xs"
             >
               {/* Color stripe */}
@@ -273,11 +284,16 @@ export default function AnnotationPanel({
 
                 <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-[var(--color-outline-variant)]/60">
                   <span className="text-[9px] font-mono text-zinc-400">
-                    {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {item.createdAt && !isNaN(new Date(item.createdAt).getTime())
+                      ? new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                      : 'Just now'}
                   </span>
                   <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button
-                      onClick={(e) => { e.stopPropagation(); onPageSelect(item.page); }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onPageSelect(item.page, item.type === 'note' ? item.id : undefined);
+                      }}
                       className="p-1 rounded text-zinc-400 hover:text-[var(--color-on-surface)]"
                       title="Jump to page"
                     >
