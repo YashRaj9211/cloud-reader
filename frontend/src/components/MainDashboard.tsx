@@ -106,6 +106,19 @@ export const MainDashboard: React.FC = () => {
     }
   }, [viewMode, activeBookId, activeMarkdown, loadBookMarkdown]);
 
+  // Persist current reading progress to localStorage before user closes tab/window
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (activeBookId && activeBookPage) {
+        try {
+          localStorage.setItem(`cloudreader_last_page_${activeBookId}`, String(activeBookPage));
+        } catch (e) {}
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [activeBookId, activeBookPage]);
+
   const handleChangePage = useCallback(
     (pageNumber: number) => {
       changePage(pageNumber);

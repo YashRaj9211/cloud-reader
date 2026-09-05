@@ -391,6 +391,16 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (get().activeBookId === bookId && get().activeBookBytes) {
       return;
     }
+
+    // Persist previous book's page before switching
+    const prevBookId = get().activeBookId;
+    const prevPage = get().activeBookPage;
+    if (prevBookId && prevPage) {
+      try {
+        localStorage.setItem(`cloudreader_last_page_${prevBookId}`, String(prevPage));
+      } catch (e) {}
+    }
+
     set({
       activeBookId: bookId,
       activeBookBytes: null,
@@ -401,8 +411,27 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     try {
       const bytes = await fetchBookBytes(bookId);
+
+      // Determine last read page with multi-tier fallback:
+      // 1. syncData.books[bookId].currentPage
+      // 2. books array currentPage (from backend Drive sync)
+      // 3. localStorage last saved page
+      // 4. default: 1
       const cached = get().syncData.books[bookId];
-      const page = cached?.currentPage || 1;
+      const bookObj = get().books.find((b) => b.id === bookId);
+      const localSaved = parseInt(
+        localStorage.getItem(`cloudreader_last_page_${bookId}`) || '0',
+        10
+      );
+
+      const page =
+        cached?.currentPage && cached.currentPage > 0
+          ? cached.currentPage
+          : bookObj?.currentPage && bookObj.currentPage > 0
+          ? bookObj.currentPage
+          : localSaved > 0
+          ? localSaved
+          : 1;
 
       set({
         activeBookBytes: bytes,
@@ -422,6 +451,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { activeBookId, updateBookStats } = get();
     set({ activeBookPage: page });
     if (activeBookId) {
+      // Synchronously record last read page so immediate tab closing/switching retains it
+      try {
+        localStorage.setItem(`cloudreader_last_page_${activeBookId}`, String(page));
+      } catch (e) {}
+
       updateBookStats(activeBookId, (prev) => ({
         ...prev,
         currentPage: page,

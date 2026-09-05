@@ -318,4 +318,34 @@ Describes the rendering pipeline from PDF load to page display, including the vi
 8. Thumbnails rendered at scale 0.2 via `requestIdleCallback`, canvas released immediately after `toDataURL`
 9. `PDFPageItem` reports exact rendered dimensions to `PDFReader` via `onPageSizeChange` → `pageSizeCache`
 10. Programmatic scroll loop prevention: User scrolling continuous reading updates `currentPage` without firing competing programmatic smooth-scroll interruptions.
+11. **Last Read Page Restoration**: When opening any PDF, `selectBook` checks `syncData.books[id].currentPage`, `book.currentPage`, and synchronous `localStorage` fallback. On mount, `PDFReader` suppresses scroll spy with programmatic scroll-lock (`isScrollingProgrammatically = true`), queries the target page container or height-preserving spacer, and performs an instant jump (`behavior: 'auto'`) directly to the last read page before re-engaging the scroll spy.
+
+### 5.1 Last Read Page Restoration Flow
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant Sidebar as DocumentSidebar
+    participant Store as Zustand Store (selectBook)
+    participant Reader as PDFReader
+    participant DOM as Page Containers / Spacers
+
+    User->>Sidebar: Click PDF document
+    Sidebar->>Store: selectBook(bookId)
+    Store->>Store: Flush prevBookId current page to localStorage
+    Store->>Store: Resolve target page: syncData -> bookObj -> localStorage -> default(1)
+    Store->>Store: set({ activeBookBytes, activeBookPage: targetPage })
+    Store->>Reader: Mount with currentPage = targetPage
+
+    Reader->>Reader: pdfjsLib.getDocument() loads PDF
+    Reader->>Reader: setPdf(doc), setTotalPages(doc.numPages), setLoading(false)
+    Reader->>DOM: Mount pages in window [targetPage-5, targetPage+5] + Spacers
+    Reader->>Reader: Set isScrollingProgrammatically = true (suppress scroll spy)
+    Reader->>DOM: querySelector(`[data-page-number="${targetPage}"]`)
+    Reader->>DOM: scrollTo({ top: targetScrollTop - 16, behavior: 'auto' })
+    Note over Reader,DOM: Instant jump directly to last read page without flickering to page 1
+    Reader->>Reader: Release scroll-lock (isScrollingProgrammatically = false)
+    Note over Reader: Normal scroll spy resumes for subsequent user reading gestures
+```
 

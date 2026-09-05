@@ -69,7 +69,12 @@
     - Preserves direct access to primary navigation, text selection, highlighting, note creation, freehand pen, and quick zoom controls while eliminating redundant wrapper borders and heavy container backgrounds.
   - **Minimalist Document Library Sidebar**: Transformed the left sidebar from heavy dashed upload dropzones, bulky cards, large progress bars, and index badges into a clean, flat list layout. Features a quiet header with document count badge, quick upload icon trigger, compact segment tab pills (`Files`, `Folders`, `Notes`), subtle search input, plain single-line file items with elegant circular progress gauges (displaying reading percentage inside the circle alongside `read/total` page numbers), and a low-profile user profile footer.
   - **Seamless Document Switching & Full Loading States**: When selecting or switching documents from the sidebar, the viewport immediately displays a centered document loader (`z-50`, spinning ring with `FileText` icon, document title, and live binary streaming status) rather than flashing a blank screen or empty welcome view while the binary is being downloaded and parsed.
-- **Cross-device State Sync**: Real-time sync of reading progress, zoom settings, and annotations.
+- **Cross-device State Sync & Last Read Page Restore**:
+  - Real-time sync of reading progress, zoom settings, and annotations to Google Drive and NeonDB PostgreSQL.
+  - **Automatic Resume at Last Read Page**: When opening any PDF document, the reader automatically resumes exactly at the page where it was last closed.
+  - **Multi-Tier Page Recovery**: Resolves last read page from Google Drive `syncData.books[bookId].currentPage`, backend document metadata, and synchronous client-side `localStorage` fallback (`cloudreader_last_page_{bookId}`).
+  - **Programmatic Scroll-Lock on Initial Load**: In continuous scroll mode, an initial layout effect detects document completion, suppresses the scroll-spy listener to prevent resetting the page to 1, and performs an instant (`behavior: 'auto'`) scroll jump to the target page container or height-preserving spacer div.
+  - **Zero-Loss Page Persistence**: Current reading progress is saved synchronously to `localStorage` on page change, upon switching documents, and via window `beforeunload` handlers before debounced cloud sync triggers.
 
 ### 3. Asynchronous Event-Driven Ingestion Pipeline (Kafka + Workers)
 - Distributed, event-driven background processing for PDF ingestion:

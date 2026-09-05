@@ -373,21 +373,66 @@ export default function PDFReader({
       const targetScrollTop = containerTop + (targetRect.top - containerRect.top);
 
       containerRef.current.scrollTo({
-        top: targetScrollTop - 16,
+        top: Math.max(0, targetScrollTop - 16),
         behavior,
       });
 
       scrollTimeoutRef.current = setTimeout(() => {
         isScrollingProgrammatically.current = false;
-      }, 700);
+      }, behavior === 'auto' ? 250 : 700);
     }
   }, []);
 
-  // ─── External page change sync (from AnnotationPanel, search, sidebar, etc.) ─
+  // ─── Restore last read page upon document load ────────────────────────────
+  const initialScrollDoneRef = useRef(false);
   const lastScrolledPage = useRef(currentPage);
+
+  // Reset initial scroll flag when switching to a different PDF document
+  useEffect(() => {
+    initialScrollDoneRef.current = false;
+    lastScrolledPage.current = 0;
+  }, [pdfData]);
+
+  useEffect(() => {
+    if (loading || !pdf || totalPages === 0 || initialScrollDoneRef.current) return;
+
+    if (currentPage > 1 && currentPage <= totalPages && isContinuous) {
+      isScrollingProgrammatically.current = true;
+
+      let attempts = 0;
+      const tryScrollToPage = () => {
+        if (!containerRef.current || initialScrollDoneRef.current) return;
+        const targetEl = containerRef.current.querySelector<HTMLElement>(
+          `[data-page-number="${currentPage}"]`
+        );
+        if (targetEl) {
+          scrollToPage(currentPage, 'auto');
+          initialScrollDoneRef.current = true;
+          lastScrolledPage.current = currentPage;
+          setTimeout(() => {
+            isScrollingProgrammatically.current = false;
+          }, 350);
+        } else if (attempts < 6) {
+          attempts++;
+          setTimeout(tryScrollToPage, 50);
+        } else {
+          initialScrollDoneRef.current = true;
+          isScrollingProgrammatically.current = false;
+        }
+      };
+
+      const timer = setTimeout(tryScrollToPage, 40);
+      return () => clearTimeout(timer);
+    } else {
+      initialScrollDoneRef.current = true;
+      lastScrolledPage.current = currentPage;
+    }
+  }, [loading, pdf, totalPages, currentPage, isContinuous, scrollToPage]);
+
+  // ─── External page change sync (from AnnotationPanel, search, sidebar, etc.) ─
   useEffect(() => {
     // Only invoke programmatic scrollToPage if this page change was NOT caused by user continuous scrolling
-    if (lastScrolledPage.current !== currentPage) {
+    if (initialScrollDoneRef.current && lastScrolledPage.current !== currentPage) {
       lastScrolledPage.current = currentPage;
       if (isContinuous && !isScrollingProgrammatically.current) {
         scrollToPage(currentPage, 'smooth');
