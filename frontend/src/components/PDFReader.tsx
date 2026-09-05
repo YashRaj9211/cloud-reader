@@ -91,7 +91,9 @@ export default function PDFReader({
   const [pdf, setPdf] = useState<any>(null);
   const [totalPages, setTotalPages] = useState<number>(1);
   const [loading, setLoading] = useState<boolean>(true);
-  const [containerWidth, setContainerWidth] = useState<number>(800);
+  const [containerWidth, setContainerWidth] = useState<number>(() =>
+    typeof window !== 'undefined' ? window.innerWidth : 800
+  );
 
   // ── Page height cache — used to keep spacers the right size ───────────────
   // Keyed by `${pageNum}-${zoom}`, updated as pages render
@@ -168,12 +170,18 @@ export default function PDFReader({
   }, [pdfData]);
 
   // ─── Container resize observer (debounced to avoid thrashing) ────────────
+  const isFirstResize = useRef<boolean>(true);
   useEffect(() => {
     if (!containerRef.current) return;
     const ro = new ResizeObserver((entries) => {
       for (const e of entries) {
         if (e.contentRect.width > 0) {
           const newWidth = e.contentRect.width;
+          if (isFirstResize.current) {
+            isFirstResize.current = false;
+            setContainerWidth(newWidth);
+            return;
+          }
           // Debounce: only commit width after 150ms of no resize events
           if (resizeDebounceRef.current) clearTimeout(resizeDebounceRef.current);
           resizeDebounceRef.current = setTimeout(() => {
@@ -193,6 +201,70 @@ export default function PDFReader({
       if (resizeDebounceRef.current) clearTimeout(resizeDebounceRef.current);
     };
   }, []);
+
+  // ─── Mobile Touch Gestures: Pinch-to-zoom & Double-tap Zoom ───────────────
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    let initialPinchDistance = 0;
+    let initialZoomOnPinch = 1.0;
+    let isPinching = false;
+    let lastTapTime = 0;
+
+    const calcDistance = (touches: TouchList) => {
+      const dx = touches[0].clientX - touches[1].clientX;
+      const dy = touches[0].clientY - touches[1].clientY;
+      return Math.sqrt(dx * dx + dy * dy);
+    };
+
+    const handleTouchStart = (e: TouchEvent) => {
+      if (toolMode !== 'view') return;
+
+      if (e.touches.length === 2) {
+        isPinching = true;
+        initialPinchDistance = calcDistance(e.touches);
+        initialZoomOnPinch = zoom;
+      } else if (e.touches.length === 1) {
+        const now = Date.now();
+        if (now - lastTapTime < 300) {
+          // Double-tap toggle between fit-to-width (1.0) and comfortable mobile reading zoom (1.6)
+          setZoom((prev) => (prev <= 1.1 ? 1.6 : 1.0));
+          lastTapTime = 0;
+        } else {
+          lastTapTime = now;
+        }
+      }
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (!isPinching || e.touches.length !== 2 || toolMode !== 'view') return;
+
+      const currentDistance = calcDistance(e.touches);
+      if (initialPinchDistance > 0) {
+        e.preventDefault();
+        const ratio = currentDistance / initialPinchDistance;
+        const targetZoom = Math.max(0.4, Math.min(3.0, Math.round(initialZoomOnPinch * ratio * 20) / 20));
+        setZoom(targetZoom);
+      }
+    };
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      if (e.touches.length < 2) {
+        isPinching = false;
+      }
+    };
+
+    container.addEventListener('touchstart', handleTouchStart, { passive: true });
+    container.addEventListener('touchmove', handleTouchMove, { passive: false });
+    container.addEventListener('touchend', handleTouchEnd, { passive: true });
+
+    return () => {
+      container.removeEventListener('touchstart', handleTouchStart);
+      container.removeEventListener('touchmove', handleTouchMove);
+      container.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, [toolMode, zoom]);
 
   // ─── Fullscreen listener ──────────────────────────────────────────────────
   useEffect(() => {
@@ -643,7 +715,13 @@ export default function PDFReader({
           >
             <ZoomOut size={15} />
           </button>
-          <span className="text-[11px] sm:text-xs font-mono w-8 sm:w-9 text-center text-zinc-500">{Math.round(zoom * 100)}%</span>
+          <button
+            onClick={() => setZoom((p) => (p !== 1.0 ? 1.0 : 1.5))}
+            className="text-[11px] sm:text-xs font-mono px-1 py-0.5 rounded hover:bg-(--color-surface-container-high) text-center text-zinc-500 font-semibold cursor-pointer"
+            title="Click to toggle fit (100%) / 150%"
+          >
+            {Math.round(zoom * 100)}%
+          </button>
           <button
             onClick={() => setZoom((p) => Math.min(3.0, p + 0.1))}
             className="p-1 sm:p-1.5 rounded-lg transition-colors text-zinc-500 hover:bg-(--color-surface-container-high)"

@@ -196,8 +196,8 @@ Describes the rendering pipeline from PDF load to page display, including the vi
 - The `activeRenderTasks` and `activeTextTasks` module-level maps ensure at most **one active task per page** for each layer type.
 - Spacer `div`s use real heights from `pageSizeCache` (populated via `onPageSizeChange` callback) or fall back to A4 estimates, preventing scroll position drift.
 - Thumbnail rendering is deferred via `requestIdleCallback` so it never competes with main page rendering.
-- DPR is capped at 2.0 (desktop) / 1.5 (mobile) to keep canvas memory bounded.
-- In **view** mode, the interactive overlay has `pointer-events: none` so native text selection works through to the text layer.
+- DPR is dynamically managed by `computeAdaptiveDPR`: mobile devices with high-DPI screens render at full native DPR (up to 3.0–3.5) when scaled down for crisp text legibility, tapering gracefully as zoom increases to stay strictly within the 4096px dimension and 12MP hardware memory cap.
+- Resolution changes (`matchMedia` dppx listener) and container width updates trigger crisp re-renders automatically without lag or layout thrashing.
 - In **annotation** modes (ink, shape, highlight, eraser, note, textbox), the overlay has `pointer-events: auto` and `user-select: none` to capture all drawing interactions.
 
 ### Rendering Flow Summary

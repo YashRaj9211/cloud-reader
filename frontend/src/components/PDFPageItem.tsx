@@ -57,13 +57,89 @@ function pxToPercent(val: number, total: number) {
   return (val / total) * 100;
 }
 
-// ── Detect mobile/low-end device ───────────────────────────────────────────
-function getCapDPR(): number {
+// ── Dynamic Adaptive DPI & Quality for Mobile and Zoom ─────────────────────
+/**
+ * Dynamically computes the optimal Device Pixel Ratio (DPR) for rendering
+ * the PDF page onto the <canvas>, balancing razor-sharp legibility on mobile
+ * (Retina/OLED/high-DPI screens) with memory safety and performance.
+ *
+ * Why dynamic?
+ * 1. Mobile devices typically have high DPR (2.5 - 3.5), but small CSS widths (~360-420px).
+ *    A standard letter page (612pt) is scaled down to displayScale ≈ 0.55.
+ *    If DPR is capped to 1.5, a 10pt font is rasterized at only ~8 pixels, resulting in
+ *    blurry, unreadable smudges. Allowing full native DPR (up to 3.0 or 3.5) renders the font
+ *    at ~18 physical pixels, making it crystal clear and readable.
+ * 2. When the user zooms in (e.g. 2.5x - 3x), the CSS dimensions become large.
+ *    Keeping DPR at 3.5 when zoomed in 3x would produce canvases exceeding 4096px,
+ *    triggering iOS Safari memory limits. So as zoom/CSS size increases, we smoothly
+ *    taper the DPR down while keeping total pixel density optimal.
+ * 3. Enforces strict hardware safety boundaries:
+ *    - Max dimension per side: 4096px (Safari limit)
+ *    - Max canvas pixel area: 12 Megapixels (12 * 1024 * 1024)
+ */
+export function computeAdaptiveDPR(
+  displayScale: number,
+  zoom: number,
+  cssW: number,
+  cssH: number
+): number {
   if (typeof window === 'undefined') return 1;
+
+  const rawNativeDPR = window.devicePixelRatio || 1;
   const isMobile = window.innerWidth < 768;
-  // Use lower DPR cap on mobile to avoid giant canvases
-  const cap = isMobile ? 1.5 : 2.0;
-  return Math.min(Math.max(window.devicePixelRatio || 1, 1), cap);
+
+  // Modern smartphones (iPhone Retina, Samsung OLED, Google Pixel) have DPR between 2.5 and 3.5.
+  // On mobile screens, because displayScale is small (< 0.7) to fit the phone width,
+  // we must provide high DPR so that a 10pt font has enough physical raster pixels
+  // (e.g., 18-24 physical pixels) to be crisp and easily readable instead of blurry blobs.
+  let targetDPR = rawNativeDPR;
+
+  if (isMobile) {
+    // If device reports a low DPR (e.g. 1 or 1.5 in older devices/emulators), ensure at least 2.0
+    // so small text on a 360-400px screen is never pixelated.
+    targetDPR = Math.max(targetDPR, 2.0);
+
+    // On narrow phone viewports with fit-to-width (displayScale < 0.75), give an extra boost
+    // when zoom is at or below 1.0 to maximize glyph sharpness and contrast.
+    if (displayScale < 0.75 && zoom <= 1.0) {
+      targetDPR = Math.min(targetDPR * 1.25, 3.5);
+    }
+  } else {
+    // Desktop screens:
+    // If 1x display, container width is already large (~1000-1400px), but 1.5 DPR provides
+    // smooth anti-aliased text. If 2x Retina MacBook/4K monitor, use full 2.0 DPR.
+    if (targetDPR <= 1.0) {
+      targetDPR = 1.5;
+    }
+  }
+
+  // Zoom-aware tapering:
+  // As the user zooms in, each CSS pixel represents more screen real estate.
+  // We can safely taper down the DPR so we don't allocate excessive canvas memory,
+  // while keeping the rendered output ultra-sharp:
+  if (zoom >= 2.5) {
+    targetDPR = Math.min(targetDPR, 1.75);
+  } else if (zoom >= 1.8) {
+    targetDPR = Math.min(targetDPR, 2.0);
+  } else if (zoom >= 1.2) {
+    targetDPR = Math.min(targetDPR, 2.5);
+  }
+
+  // Strict hardware safety limits:
+  // - iOS WebKit / Android Chrome max canvas dimension: 4096px
+  // - Max canvas pixel budget: 12 Megapixels (12 * 1024 * 1024)
+  const MAX_CANVAS_DIM = 4096;
+  const MAX_CANVAS_PIXELS = 12 * 1024 * 1024;
+
+  const w = Math.max(cssW, 1);
+  const h = Math.max(cssH, 1);
+
+  const maxDPRByDim = Math.min(MAX_CANVAS_DIM / w, MAX_CANVAS_DIM / h);
+  const maxDPRByArea = Math.sqrt(MAX_CANVAS_PIXELS / (w * h));
+  const safeCap = Math.min(maxDPRByDim, maxDPRByArea);
+
+  const finalDPR = Math.max(1.0, Math.min(targetDPR, safeCap));
+  return Math.round(finalDPR * 100) / 100;
 }
 
 // ── Page-level render task manager ─────────────────────────────────────────
@@ -176,6 +252,29 @@ function PDFPageItemInner({
   // Unique render task key for this page instance
   const renderTaskKey = `page-${pageNum}`;
 
+  // Listen for device pixel ratio changes (e.g. dragging between monitors or browser zoom)
+  const [deviceDPR, setDeviceDPR] = useState<number>(() =>
+    typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
+  );
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mq = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+    const update = () => setDeviceDPR(window.devicePixelRatio || 1);
+    try {
+      mq.addEventListener('change', update);
+    } catch {
+      mq.addListener(update);
+    }
+    return () => {
+      try {
+        mq.removeEventListener('change', update);
+      } catch {
+        mq.removeListener(update);
+      }
+    };
+  }, [deviceDPR]);
+
   // ── 1. IntersectionObserver — tight margin for rendering, wide for keeping alive ──
   useEffect(() => {
     const el = pageContainerRef.current;
@@ -228,7 +327,7 @@ function PDFPageItemInner({
     pdf.getPage(pageNum).then((page: any) => {
       if (!isMounted) return;
       const unscaled = page.getViewport({ scale: 1.0 });
-      const effectiveWidth = containerWidth > 0 ? containerWidth : 800;
+      const effectiveWidth = containerWidth > 0 ? containerWidth : (typeof window !== 'undefined' ? window.innerWidth : 800);
       const marginOffset = typeof window !== 'undefined' && window.innerWidth < 768 ? 16 : 48;
       const widthScale = Math.max(0.1, (effectiveWidth - marginOffset) / unscaled.width);
       const scale = widthScale * zoom;
@@ -253,21 +352,22 @@ function PDFPageItemInner({
     pdf.getPage(pageNum).then((page: any) => {
       if (isCancelled) return;
 
-      const dpr = getCapDPR();
       const unscaled = page.getViewport({ scale: 1.0 });
-      const effectiveWidth = containerWidth > 0 ? containerWidth : 800;
+      const effectiveWidth = containerWidth > 0 ? containerWidth : (typeof window !== 'undefined' ? window.innerWidth : 800);
       const marginOffset = typeof window !== 'undefined' && window.innerWidth < 768 ? 16 : 48;
       const widthScale = Math.max(0.1, (effectiveWidth - marginOffset) / unscaled.width);
       const displayScale = widthScale * zoom;
 
       const cssVp = page.getViewport({ scale: displayScale });
+      const cssW = Math.floor(cssVp.width);
+      const cssH = Math.floor(cssVp.height);
+
+      // Adaptive DPI based on device screen density, zoom level, and viewport dimensions
+      const dpr = computeAdaptiveDPR(displayScale, zoom, cssW, cssH);
       const renderVp = page.getViewport({ scale: displayScale * dpr });
 
       const canvas = canvasRef.current;
       if (!canvas || isCancelled) return;
-
-      const cssW = Math.floor(cssVp.width);
-      const cssH = Math.floor(cssVp.height);
 
       // Only resize canvas if dimensions actually changed (avoid expensive realloc)
       const newW = Math.floor(renderVp.width);
@@ -282,6 +382,10 @@ function PDFPageItemInner({
 
       const ctx = canvas.getContext('2d');
       if (!ctx || isCancelled) return;
+
+      // High quality smoothing for clear graphics and text
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
 
       const task = page.render({ canvasContext: ctx, viewport: renderVp });
 
@@ -317,7 +421,7 @@ function PDFPageItemInner({
       // while the page is being re-rendered after scrolling back into view.
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pdf, pageNum, zoom, containerWidth, isVisible]);
+  }, [pdf, pageNum, zoom, containerWidth, isVisible, deviceDPR]);
 
   // ── 4. Render text layer when visible ─────────────────────────────────────
   // Runs independently of the canvas render. A cancellable TextLayer instance
@@ -336,7 +440,7 @@ function PDFPageItemInner({
       if (isCancelled || !textLayerRef.current) return;
 
       const unscaled = page.getViewport({ scale: 1.0 });
-      const effectiveWidth = containerWidth > 0 ? containerWidth : 800;
+      const effectiveWidth = containerWidth > 0 ? containerWidth : (typeof window !== 'undefined' ? window.innerWidth : 800);
       const marginOffset = typeof window !== 'undefined' && window.innerWidth < 768 ? 16 : 48;
       const widthScale = Math.max(0.1, (effectiveWidth - marginOffset) / unscaled.width);
       const displayScale = widthScale * zoom;

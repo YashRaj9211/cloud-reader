@@ -17,7 +17,13 @@
 - **Performance Optimizations**:
   - **Page Virtualization**: In continuous scroll mode, only the current page ±2 pages are mounted in the DOM. All other pages are represented by height-preserving spacer `div`s, preventing thousands of canvas elements from being created for large PDFs.
   - **Canvas Eviction**: When a page scrolls outside the virtualization window, its canvas backing store is cleared and its dimensions zeroed to release GPU/CPU memory immediately.
-  - **DPR Capping**: `devicePixelRatio` is capped at `2.0` on desktop and `1.5` on mobile to prevent unnecessarily large canvases on high-DPI screens.
+  - **Dynamic Adaptive DPI & Zoom-Aware Resolution**:
+    - Replaced static 1.5 DPR mobile cap with `computeAdaptiveDPR(displayScale, zoom, cssW, cssH)`.
+    - Modern smartphones/tablets with high pixel densities (Retina/OLED, 2.5x–3.5x DPR) render at full native device resolution, eliminating blurry, illegible text when scaled down to mobile viewports.
+    - Intelligently tapers DPR down at higher zoom levels (e.g. 1.75x–2.0x at 200%+ zoom) where glyphs already span many CSS pixels, maintaining peak sharpness while strictly enforcing hardware canvas limits (max 4096px per dimension and 12MP memory budget).
+    - Enables high-quality canvas context anti-aliasing (`imageSmoothingEnabled = true`, `imageSmoothingQuality = 'high'`).
+    - Device resolution change listeners (`resolution: ...dppx`) automatically re-render canvases when dragged between displays or upon browser zoom changes.
+    - Mobile touch gestures: native two-finger pinch-to-zoom and double-tap zoom toggle between fit-to-width (100%) and reading zoom (160%).
   - **RenderTask Management**: A module-level `Map` tracks active PDF.js `RenderTask` instances per page. Any in-flight render is cancelled before a new one starts, preventing duplicate rendering loops on zoom/scroll.
   - **React.memo**: `PDFPageItem` is wrapped in `React.memo` and all annotation callbacks are stabilised with `useCallback`, so toolbar state changes (color, tool mode) do not trigger canvas re-renders.
   - **Debounced ResizeObserver**: Container width changes only propagate (and trigger re-renders) after 150ms of resize inactivity and only if the width changed by more than 5px.
