@@ -10,7 +10,8 @@ module.exports = {
       autorestart: true,
       env: {
         PYTHONUNBUFFERED: "1",
-        ENABLE_IN_APP_PIPELINE_WORKERS: "true"
+        ENABLE_IN_APP_PIPELINE_WORKERS: "true",
+        APP_ENV: "production"
       }
     }
   ]

@@ -1,18 +1,7 @@
 import os
-from pathlib import Path
-from dotenv import load_dotenv
+import app.configs.env_loader
+from app.configs.env_loader import APP_ENV
 
-# Load base .env file from backend root
-backend_root = Path(__file__).resolve().parent.parent
-base_env_path = backend_root / ".env"
-if base_env_path.exists():
-    load_dotenv(dotenv_path=base_env_path, override=True)
-
-# Load environment-specific .env file (e.g., .env.development or .env.production)
-APP_ENV = os.getenv("APP_ENV", "development")
-env_specific_path = backend_root / f".env.{APP_ENV}"
-if env_specific_path.exists():
-    load_dotenv(dotenv_path=env_specific_path, override=True)
 # Core App Settings
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")

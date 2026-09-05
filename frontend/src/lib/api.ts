@@ -93,7 +93,8 @@ export function getApiErrorMessage(error: unknown): string {
 export async function getGoogleAuthUrl(redirectUri?: string, state?: string): Promise<string> {
   const params: Record<string, string> = {};
   if (redirectUri) params.redirect_uri = redirectUri;
-  const effectiveState = state || (typeof window !== 'undefined' ? window.location.origin : undefined);
+  const configuredFrontend = import.meta.env.VITE_FRONTEND_URL || import.meta.env.APP_URL;
+  const effectiveState = state || (typeof window !== 'undefined' ? (configuredFrontend || window.location.origin) : undefined);
   if (effectiveState) params.state = effectiveState;
 
   const { data } = await apiClient.get<{ url: string }>('/api/auth/url', { params });

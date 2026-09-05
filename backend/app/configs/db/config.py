@@ -13,8 +13,7 @@ from urllib.parse import urlparse, urlunparse
 
 logger = logging.getLogger(__name__)
 
-env_path = Path(__file__).resolve().parents[3] / ".env"
-load_dotenv(dotenv_path=env_path)
+import app.configs.env_loader
 
 DATABASE_URL: str = os.getenv("NEON_DATABASE_URL") or os.getenv("DATABASE_URL") or os.getenv("DB", "")
 DB_POOL_SIZE: int = int(os.getenv("DB_POOL_SIZE", "5"))

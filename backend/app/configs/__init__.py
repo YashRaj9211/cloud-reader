@@ -1,3 +1,4 @@
+import app.configs.env_loader
 from .chroma import (
     CHROMA_HOST,
     CHROMA_PORT,

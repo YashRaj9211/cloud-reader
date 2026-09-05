@@ -16,7 +16,7 @@ sequenceDiagram
     participant DB as Neon PostgreSQL
 
     User->>Frontend: Click "Sign in with Google"
-    Frontend->>Backend: GET /api/auth/login-url
+    Frontend->>Backend: GET /api/auth/url (passes state & configured frontend/origin)
     Backend-->>Frontend: Return Google OAuth authorization URL
     Frontend->>Google: Redirect to OAuth Consent Screen
     User->>Google: Consent & Authenticate
@@ -24,7 +24,7 @@ sequenceDiagram
     Backend->>Google: Exchange code for Access & Refresh Tokens
     Google-->>Backend: Access token, Refresh token, Profile info
     Backend->>DB: Upsert User record & OAuth credentials
-    Backend-->>Frontend: Set session cookie / Auth token & redirect to App
+    Backend-->>Frontend: Redirect to FRONTEND_URL or client state (?auth_success=1&token=...)
     Frontend->>Backend: GET /api/auth/me (Validate session)
     Backend-->>Frontend: User profile data
 ```

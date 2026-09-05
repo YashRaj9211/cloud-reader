@@ -111,6 +111,7 @@ cloud-pdf-reader/
 │   │   │       ├── agent.py
 │   │   │       ├── tools.py
 │   │   │       └── prompts.py
+│   │   ├── configs/        # Modular service configs (db, redis, chroma, kafka, promethus, env_loader)
 │   │   ├── config.py       # Global environment settings (supports APP_ENV)
 │   │   ├── db.py           # Database connection & session manager
 │   │   └── main.py         # FastAPI application entrypoint & lifespan
