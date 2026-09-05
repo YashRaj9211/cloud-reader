@@ -226,6 +226,17 @@ export default function PDFReader({
         initialPinchDistance = calcDistance(e.touches);
         initialZoomOnPinch = zoom;
       } else if (e.touches.length === 1) {
+        // Do not double-tap zoom if user is tapping or selecting text inside the text layer!
+        const target = e.target as HTMLElement | null;
+        if (
+          target &&
+          (target.closest('.textLayer') ||
+            target.closest('.text-selection-bar') ||
+            target.closest('button') ||
+            target.closest('input'))
+        ) {
+          return;
+        }
         const now = Date.now();
         if (now - lastTapTime < 300) {
           // Double-tap toggle between fit-to-width (1.0) and comfortable mobile reading zoom (1.6)

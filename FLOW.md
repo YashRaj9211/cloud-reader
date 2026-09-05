@@ -80,12 +80,12 @@ sequenceDiagram
     participant Backend as FastAPI (/api/sync)
     participant Drive as Google Drive / DB
 
-    Note over User,TextLayer: View mode — text selection enabled
-    User->>TextLayer: Click & drag over PDF text
+    Note over User,TextLayer: View mode — text selection enabled (mouse & mobile touch)
+    User->>TextLayer: Select text (mouse drag, or mobile touch long-press & handle adjust)
     TextLayer-->>User: Browser selection box (strictly transparent spans & ::selection, zero duplicate text overlay)
-    User->>TextLayer: Release mouse (mouseup)
-    TextLayer->>Reader: handleTextLayerMouseUp → compute selection bounds
-    Reader-->>User: Show floating action bar (Highlight / Copy / Note)
+    User->>TextLayer: Release touch/mouse (touchend / mouseup / debounced selectionchange)
+    TextLayer->>Reader: updateSelectionBar() → compute collision-safe bounds
+    Reader-->>User: Show floating action bar (Highlight / Copy / Note) with coarse touch targets
 
     alt User clicks Highlight
         User->>Reader: handleSelectionHighlight()

@@ -487,44 +487,82 @@ function PDFPageItemInner({
   }, [pdf, pageNum, zoom, containerWidth, isVisible]);
 
   // ── 5. Text-selection listener ────────────────────────────────────────────
-  // In view mode, listens for mouseup events on the text layer and computes the
-  // selection bounds as page-relative percentages to show the action bar.
-  const handleTextLayerMouseUp = useCallback(() => {
-    if (toolMode !== 'view') return;
+  // In view mode, listens for selection events on desktop & mobile and computes the
+  // selection bounds to position the floating action bar.
+  const updateSelectionBar = useCallback(() => {
+    if (toolMode !== 'view') {
+      setSelectionBar(null);
+      return;
+    }
+
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed || !sel.toString().trim()) {
       setSelectionBar(null);
       return;
     }
+
     const container = textLayerRef.current;
-    if (!container) { setSelectionBar(null); return; }
+    if (!container) {
+      setSelectionBar(null);
+      return;
+    }
 
     // Ensure the selection is actually within this page's text layer
     const anchorNode = sel.anchorNode;
-    if (!anchorNode || !container.contains(anchorNode)) {
+    const focusNode = sel.focusNode;
+    if (
+      (!anchorNode || !container.contains(anchorNode)) &&
+      (!focusNode || !container.contains(focusNode))
+    ) {
+      setSelectionBar(null);
+      return;
+    }
+
+    if (sel.rangeCount === 0) {
       setSelectionBar(null);
       return;
     }
 
     const range = sel.getRangeAt(0);
     const rects = Array.from(range.getClientRects());
-    if (rects.length === 0) { setSelectionBar(null); return; }
+    if (rects.length === 0) {
+      setSelectionBar(null);
+      return;
+    }
 
     const pageBox = container.getBoundingClientRect();
-    // Position the bar just above the first (topmost) rect of the selection
-    const topRect = rects.reduce((a, b) => a.top < b.top ? a : b);
-    const barX = ((topRect.left + topRect.right) / 2 - pageBox.left) / pageBox.width * 100;
-    const barY = (topRect.top - pageBox.top) / pageBox.height * 100;
+    if (pageBox.width === 0 || pageBox.height === 0) return;
+
+    // Position the bar relative to the selection rects
+    const topRect = rects.reduce((a, b) => (a.top < b.top ? a : b));
+    const bottomRect = rects.reduce((a, b) => (a.bottom > b.bottom ? a : b));
+
+    // Center X based on selection
+    const barXPercent = (((topRect.left + topRect.right) / 2 - pageBox.left) / pageBox.width) * 100;
+
+    // Check if there is enough space above the selection on this page (at least 48px)
+    const spaceAbove = topRect.top - pageBox.top;
+    let targetYPercent: number;
+
+    if (spaceAbove >= 48) {
+      // Place bar 42px above the top of the selection
+      targetYPercent = ((topRect.top - pageBox.top - 42) / pageBox.height) * 100;
+    } else {
+      // Place bar 10px below the bottom of the selection
+      targetYPercent = ((bottomRect.bottom - pageBox.top + 10) / pageBox.height) * 100;
+    }
 
     setSelectionBar({
-      x: Math.min(Math.max(barX, 5), 95),
-      y: Math.max(barY - 5, 1), // 5% above the selection, at least 1%
+      x: Math.min(Math.max(barXPercent, 10), 90),
+      y: Math.min(Math.max(targetYPercent, 1), 94),
       text: sel.toString(),
       rects,
     });
   }, [toolMode]);
 
-  // ── Clear selection bar when tool mode changes or selection collapses ──────
+  // Debounced selectionchange listener for mobile handle dragging
+  const selectionDebounceRef = useRef<any>(null);
+
   useEffect(() => {
     setSelectionBar(null);
     if (toolMode !== 'view') {
@@ -534,16 +572,42 @@ function PDFPageItemInner({
 
   useEffect(() => {
     const handleSelectionChange = () => {
+      if (toolMode !== 'view') return;
       const sel = window.getSelection();
       if (!sel || sel.isCollapsed || !sel.toString().trim()) {
         setSelectionBar(null);
+        return;
       }
+
+      if (selectionDebounceRef.current) clearTimeout(selectionDebounceRef.current);
+      selectionDebounceRef.current = setTimeout(() => {
+        updateSelectionBar();
+      }, 150);
     };
+
     document.addEventListener('selectionchange', handleSelectionChange);
     return () => {
       document.removeEventListener('selectionchange', handleSelectionChange);
+      if (selectionDebounceRef.current) clearTimeout(selectionDebounceRef.current);
     };
-  }, []);
+  }, [toolMode, updateSelectionBar]);
+
+  // Window pointer listeners to immediately update selection bar on touch/mouse release
+  useEffect(() => {
+    if (toolMode !== 'view') return;
+
+    const handlePointerEnd = () => {
+      setTimeout(updateSelectionBar, 50);
+    };
+
+    window.addEventListener('mouseup', handlePointerEnd);
+    window.addEventListener('touchend', handlePointerEnd);
+
+    return () => {
+      window.removeEventListener('mouseup', handlePointerEnd);
+      window.removeEventListener('touchend', handlePointerEnd);
+    };
+  }, [toolMode, updateSelectionBar]);
 
   // ── Filtered annotation data for this page ─────────────────────────────────
   const pageHighlights = highlights.filter((h) => h.page === pageNum);
@@ -1015,7 +1079,18 @@ function PDFPageItemInner({
 
   const handleSelectionCopy = useCallback(() => {
     if (!selectionBar) return;
-    navigator.clipboard.writeText(selectionBar.text).catch(console.error);
+    const text = selectionBar.text;
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).catch(() => {
+        // Fallback for mobile WebViews without clipboard permissions
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); } catch { /* ignore */ }
+        document.body.removeChild(ta);
+      });
+    }
     window.getSelection()?.removeAllRanges();
     setSelectionBar(null);
   }, [selectionBar]);
@@ -1071,7 +1146,8 @@ function PDFPageItemInner({
         <div
           ref={textLayerRef}
           className="textLayer selection:text-transparent"
-          onMouseUp={handleTextLayerMouseUp}
+          onMouseUp={updateSelectionBar}
+          onTouchEnd={() => setTimeout(updateSelectionBar, 50)}
         />
 
         {/* Selection Action Bar */}
@@ -1080,19 +1156,49 @@ function PDFPageItemInner({
             className="text-selection-bar"
             style={{
               left: `${selectionBar.x}%`,
-              top: `calc(${selectionBar.y}% - 36px)`,
-              transform: 'translateX(-50%)',
+              top: `${selectionBar.y}%`,
+            }}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+            onTouchStart={(e) => {
+              e.stopPropagation();
             }}
           >
-            <button className="selbar-highlight" title="Highlight selected text" onClick={handleSelectionHighlight}>
+            <button
+              className="selbar-highlight"
+              title="Highlight selected text"
+              onPointerDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              onClick={handleSelectionHighlight}
+            >
               ✦ Highlight
             </button>
             <div className="selbar-sep" />
-            <button className="selbar-copy" title="Copy selected text" onClick={handleSelectionCopy}>
+            <button
+              className="selbar-copy"
+              title="Copy selected text"
+              onPointerDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              onClick={handleSelectionCopy}
+            >
               ⌘ Copy
             </button>
             <div className="selbar-sep" />
-            <button className="selbar-note" title="Add note from selection" onClick={handleSelectionNote}>
+            <button
+              className="selbar-note"
+              title="Add note from selection"
+              onPointerDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              onClick={handleSelectionNote}
+            >
               ✎ Note
             </button>
           </div>
@@ -1117,7 +1223,10 @@ function PDFPageItemInner({
                 width={`${h.width}%`}
                 height={`${h.height}%`}
                 fill={h.color}
-                style={{ pointerEvents: 'all', cursor: 'pointer' }}
+                style={{
+                  pointerEvents: toolMode === 'eraser' ? 'all' : 'none',
+                  cursor: toolMode === 'eraser' ? 'pointer' : 'default',
+                }}
                 onDoubleClick={() => {
                   if (window.confirm('Delete highlight?')) onDeleteHighlight(h.id);
                 }}

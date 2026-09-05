@@ -36,11 +36,18 @@
   - Text layer lifecycle mirrors canvas lifecycle: rendered when visible, cancelled and evicted when the page leaves the viewport window, re-rendered on zoom or resize.
   - The text layer runs in a **separate, independent effect** from canvas rendering — text layer updates never cause canvas re-renders.
   - The interactive overlay is set to `pointer-events: none` in **view** mode so mouse/touch events reach the text layer for native selection, and `pointer-events: auto` in all drawing/annotation modes.
-- **Floating Text-Selection Action Bar**:
-  - When text is selected in view mode, a sleek dark pill action bar appears above the selection with three actions:
+- **Floating Text-Selection Action Bar (Desktop & Mobile Touch Supported)**:
+  - When text is selected in view mode (via mouse drag on desktop or touch long-press & handle adjustment on mobile), a sleek dark pill action bar appears relative to the selection with three actions:
     - **✦ Highlight**: Converts the selection bounding box to page-relative percentage coordinates and stores a `Highlight` annotation with the selected text attached.
-    - **⌘ Copy**: Writes the selected text to the system clipboard.
-    - **✎ Note**: Opens a sticky-note popup pre-filled with the selected text. The popup has isolated `pointer-events: auto` and event propagation guards, supporting mouse clicks (Save, Cancel, Close) and keyboard shortcuts (`Ctrl/Cmd + Enter` to save, `Esc` to cancel) in view mode.
+    - **⌘ Copy**: Writes the selected text to the system clipboard (with fallback for mobile WebViews).
+    - **✎ Note**: Opens a sticky-note popup pre-filled with the selected text. The popup has isolated `pointer-events: auto` and event propagation guards, supporting mouse/touch clicks (Save, Cancel, Close) and keyboard shortcuts (`Ctrl/Cmd + Enter` to save, `Esc` to cancel) in view mode.
+  - **Mobile Touch Selection Tracking**:
+    - Listens to global `selectionchange` on `document` (debounced by 150ms) as well as window `touchend`/`mouseup` to immediately track mobile touch pin drags and long-press selections.
+    - Double-tap zoom on the reader container ignores taps within the text layer, ensuring double-tap word selection on mobile is never intercepted or interrupted by zoom resets.
+    - Coarse pointer (`@media (pointer: coarse)`) styling ensures generous >= 36px touch targets on mobile touchscreens.
+    - `onPointerDown` stopPropagation & preventDefault prevents mobile browsers from collapsing the text selection before action bar buttons fire.
+    - Dynamic positioning places the bar above the selection when space permits or below the selection when near the page top, preventing clipping by `overflow-hidden`.
+    - Highlight SVG elements in view mode set `pointerEvents: 'none'`, preventing existing highlights from blocking subsequent text selection underneath.
   - The bar dismisses automatically when the tool mode changes, when an action is executed, or whenever the selection collapses/clears via global `selectionchange`.
 - **Rich Annotation Layer**:
   - Freehand ink & highlighter with configurable width, color, and opacity.
