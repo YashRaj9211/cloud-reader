@@ -40,7 +40,7 @@ flowchart TD
     A[User uploads PDF / links Google Drive file] --> B[POST /api/books/upload]
     B --> C[Persist Book metadata in PostgreSQL]
     C --> D[Kafka Producer emits 'pdf.ingest.init']
-    
+
     subgraph Kafka Event Pipeline
         D --> E[fetch_worker]
         E -->|Download binary / buffer| F['pdf.fetch.completed']
@@ -64,6 +64,57 @@ flowchart TD
         DLQ -->|Set status=FAILED with error details| O
     end
 ```
+
+### 2.1 Dynamic AI Copilot Button State Machine & Indexing Lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> CheckStatus: Select Document / App Load
+    CheckStatus --> Unindexed: GET /api/books/{id}/index-status -> 404 / NOT_INDEXED / UPLOADED
+    CheckStatus --> Processing: status == PROCESSING
+    CheckStatus --> Indexed: status == INDEXED (ChromaDB vectors verified)
+    CheckStatus --> Failed: status == FAILED
+
+    state Unindexed {
+        [*] --> RenderIndexButton: Label = "Index for AI"
+        RenderIndexButton --> TriggerIndexing: User clicks "Index for AI"
+        TriggerIndexing --> SetOptimisticProcessing: Optimistic status = PROCESSING
+    }
+
+    SetOptimisticProcessing --> Processing: POST /api/books/{id}/index dispatched
+
+    state Processing {
+        [*] --> PollStatus: Poll GET /api/books/{id}/index-status (every 2.5s)
+        PollStatus --> Stage1: total_pages == 0 && total_chunks == 0 ("Fetching PDF 10%")
+        PollStatus --> Stage2: total_pages > 0 && total_chunks == 0 ("Parsing {pages}p 25%")
+        PollStatus --> Stage3: total_chunks > 0 && processed_chunks == 0 ("Embedding {chunks}c 45%")
+        PollStatus --> Stage5: processed_chunks > 0 ("Indexing {processed}/{total} {percent}%")
+    }
+
+    Processing --> Indexed: status == INDEXED (stop polling)
+    Processing --> Failed: status == FAILED / DLQ error (stop polling)
+
+    state Failed {
+        [*] --> RenderRetryButton: Label = "Index Failed • Retry"
+        RenderRetryButton --> SetOptimisticProcessing: User clicks "Retry"
+    }
+
+    state Indexed {
+        [*] --> RenderAICopilotButton: Label = "AI Copilot" (Emerald ready dot)
+        RenderAICopilotButton --> OpenChatDrawer: User clicks "AI Copilot" -> toggleChat()
+    }
+```
+
+#### Library Sidebar Context Menu Flow:
+- In `DocumentSidebar`, each item displays a three-dot menu button (`MoreVertical`) instead of inline badges:
+  - Clicking opens a dropdown menu with mutually exclusive indexing options:
+    - **Remove from Index** (shown only for indexed documents): invokes `DELETE /api/books/{book_id}/index` via `unindexBook(book.id)`:
+      - Purges chunk vectors from ChromaDB `document_chunks` collection.
+      - Cleans up disk storage markdown/text artifacts.
+      - Removes `DocumentProcessing` rows from PostgreSQL and sets `Document.status = UPLOADED`.
+      - Resets client-side state to `NOT_INDEXED`, immediately reverting the top bar button back to `Index for AI`.
+    - **Index for AI** (shown for unindexed documents): dispatches `startIndexing(book.id)` to trigger the Kafka pipeline.
+    - **Delete**: deletes the file from Google Drive and updates sync storage.
 
 ---
 
@@ -122,6 +173,7 @@ sequenceDiagram
 ```
 
 ### 3.1 Floating Toolbar & Header Navigation Interactions
+
 - **Main Top Navigation Bar**:
   - Borderless, glassmorphic floating header (`backdrop-blur-xl`) that minimizes text in favor of sleek, intuitive icon buttons.
   - Hosts the Library drawer toggle, document title and current page pill, a subtle sync status dot, semantic search trigger with `⌘K`, compact view mode icon switcher (`PDF` / `Markdown` / `Split`), notes drawer toggle icon, and glowing **AI Copilot** action pill.
@@ -136,7 +188,7 @@ sequenceDiagram
 
 ## 4. Google ADK 2.0 Multi-Agent Orchestration & Animation Flow
 
-```mermaid
+````mermaid
 sequenceDiagram
     autonumber
     actor Reader as User / Reader
@@ -154,7 +206,7 @@ sequenceDiagram
     UI->>Controller: POST /api/chat/sessions/{id}/messages
     Controller->>DB: Save User message
     Controller->>AgentOrchestrator: execute_turn_stream(session, user_message, user_id, db)
-    
+
     AgentOrchestrator->>Runner: run_async(user_id, session_id, new_message)
     Note over Runner,RootAgent: Runner executes Root Coordinator with tools=[p5js_agent] & sub_agents=[chat_agent]
 
@@ -187,9 +239,10 @@ sequenceDiagram
     end
     Controller->>DB: Save Assistant message to PostgreSQL
     Controller-->>UI: SSE Done (data: {"assistant_message": ..., "sources": ...})
-```
+````
 
 ### 4.1 On-Demand Interactive Animation Studio Window Lifecycle
+
 1. **Trigger**:
    - In `ChatMessageList`, any message containing a p5.js block or full HTML simulation displays an **"Interactive Concept Simulation"** banner with an **"Open in Animation Studio ↗"** button.
    - Alternatively, clicking the studio button in `P5Renderer`'s controls or inline canvas overlay directly triggers the studio.
@@ -287,16 +340,17 @@ Describes the rendering pipeline from PDF load to page display, including the vi
 
 ### Page Layer Stack (z-index order, bottom to top)
 
-| z-index | Element | Purpose |
-|---------|---------|---------|
-| 0 | `<canvas>` (PDF canvas) | Rasterized PDF page via `page.render()` |
-| 5 | `<div class="textLayer">` | Transparent, selectable text spans from `pdfjsLib.TextLayer` |
-| 10 | `<svg>` (SVG annotation layer) | Permanent ink strokes, shapes, and highlights (`pointerEvents: none`) |
-| 20 | `<canvas>` (ink canvas) | Live drawing preview — shown only during `ink`/`highlight` tool modes |
-| 30 | `<div>` (interactive overlay) | Captures pointer events for all annotation tools; `pointer-events: none` in view mode |
-| 40–60 | Annotation UI elements | Sticky note pins, delete bars, note popups, selection action bar |
+| z-index | Element                        | Purpose                                                                               |
+| ------- | ------------------------------ | ------------------------------------------------------------------------------------- |
+| 0       | `<canvas>` (PDF canvas)        | Rasterized PDF page via `page.render()`                                               |
+| 5       | `<div class="textLayer">`      | Transparent, selectable text spans from `pdfjsLib.TextLayer`                          |
+| 10      | `<svg>` (SVG annotation layer) | Permanent ink strokes, shapes, and highlights (`pointerEvents: none`)                 |
+| 20      | `<canvas>` (ink canvas)        | Live drawing preview — shown only during `ink`/`highlight` tool modes                 |
+| 30      | `<div>` (interactive overlay)  | Captures pointer events for all annotation tools; `pointer-events: none` in view mode |
+| 40–60   | Annotation UI elements         | Sticky note pins, delete bars, note popups, selection action bar                      |
 
 ### Key Invariants
+
 - Annotation layers (SVG overlay, interactive div) are **independent** from the PDF canvas and never cause canvas re-renders.
 - The **text layer** is rendered in a **separate, independent `useEffect`** from the canvas effect — text layer updates never trigger canvas re-renders and vice versa.
 - `PDFPageItem` is wrapped in `React.memo`; toolbar color/tool changes do **not** re-render any page canvas.
@@ -308,6 +362,7 @@ Describes the rendering pipeline from PDF load to page display, including the vi
 - In **annotation** modes (ink, shape, highlight, eraser, note, textbox), the overlay has `pointer-events: auto` and `user-select: none` to capture all drawing interactions.
 
 ### Rendering Flow Summary
+
 1. PDF loaded → `pdfjsLib.getDocument` (Web Worker thread)
 2. Continuous mode: compute window `[currentPage-5, currentPage+5]` (PRELOAD_WINDOW=5) to keep adjacent pages mounted and prevent unmount/remount thrashing during continuous scrolling
 3. Pages in window → mount `PDFPageItem`; pages outside → height-preserving spacer div
@@ -348,4 +403,3 @@ sequenceDiagram
     Reader->>Reader: Release scroll-lock (isScrollingProgrammatically = false)
     Note over Reader: Normal scroll spy resumes for subsequent user reading gestures
 ```
-

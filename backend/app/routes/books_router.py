@@ -13,6 +13,7 @@ from app.controllers.books import (
     index_book_controller,
     get_book_index_status_controller,
     get_book_markdown_controller,
+    unindex_book_controller,
 )
 
 books_router = APIRouter(prefix="/books", tags=["books"])
@@ -100,4 +101,18 @@ async def get_book_markdown(
     Fetches the parsed Markdown text of an indexed PDF document.
     """
     return await get_book_markdown_controller(book_id=book_id, auth_data=auth_data, db=db)
+
+
+@books_router.delete("/{book_id}/index")
+async def unindex_book(
+    book_id: str,
+    auth_data: tuple[User, str] = Depends(get_current_user_and_token),
+    db: Session = Depends(get_db),
+):
+    """
+    Removes a document from vector search index (ChromaDB) and purges parsed artifacts.
+    Resets the document status back to unindexed.
+    """
+    return await unindex_book_controller(book_id=book_id, auth_data=auth_data, db=db)
+
 

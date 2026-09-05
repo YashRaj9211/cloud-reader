@@ -12,7 +12,7 @@ export const IndexingProgressBar: React.FC<IndexingProgressBarProps> = ({
   status,
   onStartIndexing,
 }) => {
-  if (!status) {
+  if (!status || status.status === 'UPLOADED' || (status.status as string) === 'NOT_INDEXED') {
     return (
       <button
         onClick={(e) => {
@@ -28,7 +28,7 @@ export const IndexingProgressBar: React.FC<IndexingProgressBarProps> = ({
     );
   }
 
-  if (status.status === 'PROCESSING' || status.status === 'UPLOADED') {
+  if (status.status === 'PROCESSING') {
     const percent =
       status.total_chunks > 0
         ? Math.min(100, Math.round((status.processed_chunks / status.total_chunks) * 100))

@@ -1,6 +1,7 @@
 # Project Description: Cloud PDF Reader
 
 ## Overview
+
 **Cloud PDF Reader** is a full-stack, cloud-synchronized PDF reading, annotation, and intelligent retrieval-augmented generation (RAG) platform. The application allows users to read PDF documents, perform rich multi-layered annotations, synchronize documents and reading states seamlessly across devices via Google Drive, and interact with books using an AI-powered conversational assistant equipped with semantic search, citations, and interactive animations.
 
 ---
@@ -8,11 +9,13 @@
 ## Key Features & Capabilities
 
 ### 1. Cloud Storage & Google Drive Synchronization
+
 - **Google OAuth 2.0 & Session Management**: Secure user authentication with Google Identity, token refresh, and session storage.
 - **Drive Integration**: Files and book metadata are synchronized directly with user storage (`drive.file` scope).
 - **Directory & Folder Management**: Organizing PDFs into directories, virtual paths, and cloud folders.
 
 ### 2. PDF Reader & Rich Annotation Engine
+
 - **PDF.js Engine**: Continuous smooth scrolling, thumbnail navigation, responsive zoom, jumping to pages, and dark/sepia reading modes.
 - **Performance Optimizations**:
   - **Page Virtualization**: In continuous scroll mode, only the current page ±2 pages are mounted in the DOM. All other pages are represented by height-preserving spacer `div`s, preventing thousands of canvas elements from being created for large PDFs.
@@ -77,6 +80,7 @@
   - **Zero-Loss Page Persistence**: Current reading progress is saved synchronously to `localStorage` on page change, upon switching documents, and via window `beforeunload` handlers before debounced cloud sync triggers.
 
 ### 3. Asynchronous Event-Driven Ingestion Pipeline (Kafka + Workers)
+
 - Distributed, event-driven background processing for PDF ingestion:
   - `fetch_worker`: Downloads PDF binaries from Google Drive / local file store.
   - `parse_worker`: Extracts text and metadata page-by-page.
@@ -86,6 +90,7 @@
   - `dlq_worker`: Handles Dead Letter Queue retries and error tracking.
 
 ### 4. Advanced RAG & AI Reading Assistant
+
 - **Semantic Vector Search**: Powered by ChromaDB vector collections per book/document.
 - **Reranking**: Cross-encoder / reranking service to select the most relevant chunks.
 - **Google ADK 2.0 Multi-Agent Orchestrator (`app/agents/orchestrator.py`)**:
@@ -95,7 +100,7 @@
   - **P5.js Creative Visualization Specialist (`p5js_agent/`)**:
     - Equipped with the `p5js` skill loaded dynamically via ADK `SkillToolset` (`load_skills_from_dir`), granting the agent native tools: `list_skills`, `load_skill`, `load_skill_resource`, and `run_skill_script`.
     - Leverages skill guidelines and references (`references/animation.md`, `references/visual-effects.md`, `references/creative-direction.md`, `references/color-systems.md`, etc.).
-    - Generates self-contained, interactive, 60fps p5.js animations encapsulated in ````p5js ... ```` markdown blocks, rendered by the frontend's sandboxed iframe `P5Renderer` with play/pause, restart, code inspection, clipboard copy, and responsive fullscreen lightbox modal controls.
+    - Generates self-contained, interactive, 60fps p5.js animations encapsulated in `p5js ... ` markdown blocks, rendered by the frontend's sandboxed iframe `P5Renderer` with play/pause, restart, code inspection, clipboard copy, and responsive fullscreen lightbox modal controls.
   - Multi-session chat history persisted in PostgreSQL and rehydrated into ADK sessions.
   - **Server-Sent Events (SSE) Streaming & Resilient Persistence**: Streams chunked AI responses to the frontend in real-time. To prevent serverless PostgreSQL connection timeouts during long turns (such as multi-step Playwright PDF generation or in-depth RAG synthesis), the engine configures TCP keepalives and `pool_recycle`, and the chat controller implements resilient assistant message persistence that auto-reconnects with a fresh `SessionLocal` if the primary idle connection drops mid-stream.
   - **In-Memory PDF Notes Generation Specialist (`pdf_notes_agent/`)**:
@@ -107,7 +112,7 @@
   - **Frontend P5.js Animation Suite (`P5Renderer.tsx`, `ChatMessageList.tsx`, `ChatDrawer.tsx`)**:
     - **Universal Format Support**: Seamlessly renders both raw JavaScript sketches (`function setup()`) and complete standalone HTML5 applications (`<!DOCTYPE html>` with interactive buttons, sliders, and controls).
     - **DOM Canvas Parent Fix**: Automatically replaces `<canvas id="canvas">` with `<div id="canvas">` when rendering full HTML sketches, resolving the browser canvas fallback invisibility bug.
-    - **Unescaped HTML Preprocessor**: Detects raw `<!DOCTYPE html> ... </html>` documents in chat responses and wraps them into ````p5js```` code fences so they render as live interactive sandboxes instead of broken markdown text.
+    - **Unescaped HTML Preprocessor**: Detects raw `<!DOCTYPE html> ... </html>` documents in chat responses and wraps them into `p5js` code fences so they render as live interactive sandboxes instead of broken markdown text.
     - **Debounced Stream Rendering**: Prevents iframe churn and flashing during live token streaming by debouncing updates and displaying a sleek shimmering loader while simulation logic compiles.
     - **Dark Simulation Canvas**: Sandboxed iframe with an optimized dark viewport (`#09090b`) to highlight vibrant generative graphics and eliminate harsh light borders.
     - **Transport & Code Controls**: Inline and full-screen transport controls (Play, Pause, Restart, Code/Canvas view toggle, and One-click Code Copy with checkmark confirmation).
@@ -123,11 +128,27 @@
         - **4-Column Parameter Playground**: Live interactive sliders (`Prior Probability P(A)`, `Evidence Occurrence P(B)`, `Likelihood P(B | A)`) that instantly update and re-calculate probability values, a visual insight card explaining the mathematical flow, one-click code copying, and a "Collapse to Chat" action.
       - **Seamless Chat Integration**: Chat messages containing p5.js blocks provide an "Open in Animation Studio ↗" button that elevates the animation directly into the docked studio window without cluttering the chat history.
 
+### 5. Document Indexing Visibility & Dynamic AI Copilot Lifecycle
+- **Context-Aware Dynamic AI Copilot Header Button (`MainDashboard.tsx`)**:
+  - The primary action button in the top navigation bar dynamically adapts to the current document's exact indexing lifecycle:
+    1. **Unindexed Document (`UPLOADED` / `NOT_INDEXED`)**: Displays **`Index for AI`** (`Sparkles`). Clicking queues the document for processing via `startIndexing(activeBookId)`.
+    2. **In-Flight Processing (`PROCESSING`)**: Morphologically changes to display real-time Kafka stage metrics and percentage (e.g. `Parsing 45p 25%`, `Embedding 120c 45%`, `Indexing 60/120 50%`) with an animated spinner (`RefreshCw`) and micro-progress bar. Polling is active only during this state.
+    3. **Indexing Complete (`INDEXED`)**: Automatically converts into the **`AI Copilot`** (AI Chat) toggle button with an emerald pulse indicator, allowing immediate conversational Q&A and scoped document queries upon completion.
+    4. **Failure State (`FAILED`)**: Displays **`Index Failed • Retry`** with error tooltips and one-click retry trigger.
+- **Minimal, Uncluttered Library Sidebar with Context Menu (`DocumentSidebar.tsx`)**:
+  - Keeps the document list ultra-clean and distraction-free: displays only the truncated file name, reading progress fraction, and circular progress gauge.
+  - Replaced inline badges and direct delete icon with a subtle three-dot context menu (`MoreVertical`):
+    - **Remove from Index** (shown only for indexed documents): Purges document vector embeddings from ChromaDB, deletes parsed markdown and storage artifacts, and resets the document's indexing state to unindexed without deleting the PDF file (`DELETE /api/books/{book_id}/index`).
+    - **Index for AI** (shown for unindexed documents): Dispatches the document into the Kafka pipeline.
+    - **Delete**: Safely removes the document from Google Drive and purges sync entries.
+    - Click-outside backdrop dismissal and extensible for future actions.
+
 ---
 
 ## Technology Stack
 
 ### Backend
+
 - **Framework**: FastAPI (Python 3.10+) with Uvicorn / Gunicorn
 - **Database**: PostgreSQL (NeonDB / SQLAlchemy ORM / AsyncSession)
 - **Message Broker / Pipeline**: Apache Kafka / aiokafka
@@ -138,6 +159,7 @@
 - **Monitoring**: Prometheus client metrics & request tracking middleware
 
 ### Frontend
+
 - **Framework**: React 19 + TypeScript + Vite
 - **Styling**: Tailwind CSS + Custom Design System (`index.css`)
 - **PDF Engine**: PDF.js (`pdfjs-dist`)

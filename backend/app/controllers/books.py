@@ -459,3 +459,56 @@ async def get_book_markdown_controller(
         "markdown": md_text,
     }
 
+
+async def unindex_book_controller(
+    book_id: str,
+    auth_data: tuple[User, str],
+    db: Session,
+) -> dict:
+    """
+    Removes a document from the vector index (ChromaDB) and resets its indexing state.
+    Deletes ChromaDB chunks, parsed markdown/text artifacts, and resets Document & DocumentProcessing records.
+    """
+    schema_user, _ = auth_data
+    db_user = _get_or_create_db_user(db, schema_user)
+
+    doc = db.query(Document).filter(
+        (Document.google_drive_file_id == book_id) | (Document.id == book_id),
+        Document.user_id == db_user.id
+    ).first()
+
+    if not doc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Document '{book_id}' not found."
+        )
+
+    # 1. Purge ChromaDB vector embeddings
+    try:
+        vector_store_service.delete_chunks_by_document(document_id=doc.id, user_id=db_user.id)
+    except Exception as e:
+        logger.warning(f"Failed to delete vector chunks for document {doc.id}: {e}")
+
+    # 2. Cleanup local markdown and text artifacts
+    try:
+        from app.services.document_storage_service import document_storage_service
+        document_storage_service.cleanup_document(db_user.id, doc.id)
+    except Exception as e:
+        logger.warning(f"Failed to delete disk storage artifacts for document {doc.id}: {e}")
+
+    # 3. Delete DocumentProcessing record
+    db.query(DocumentProcessing).filter(DocumentProcessing.document_id == doc.id).delete()
+
+    # 4. Reset Document status to UPLOADED and clear indexed_at
+    doc.status = DocumentStatus.UPLOADED
+    doc.indexed_at = None
+    db.commit()
+
+    return {
+        "status": "unindexed",
+        "document_id": doc.id,
+        "filename": doc.filename,
+        "message": f"Successfully removed index for '{doc.filename}'.",
+    }
+
+

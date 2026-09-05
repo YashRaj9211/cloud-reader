@@ -36,7 +36,7 @@ export function setStoredSessionToken(token: string | null): void {
     } else {
       localStorage.removeItem(SESSION_TOKEN_KEY);
     }
-  } catch {}
+  } catch { }
 }
 
 export const apiClient = axios.create({
@@ -274,6 +274,16 @@ export async function fetchBookMarkdown(bookId: string): Promise<DocumentMarkdow
   );
   return data;
 }
+
+export async function removeBookIndex(
+  bookId: string
+): Promise<{ status: string; document_id: string; message: string }> {
+  const { data } = await apiClient.delete<{ status: string; document_id: string; message: string }>(
+    `/api/books/${bookId}/index`
+  );
+  return data;
+}
+
 
 // ── AI Chat & Scoped RAG API ─────────────────────────────────────────────────
 

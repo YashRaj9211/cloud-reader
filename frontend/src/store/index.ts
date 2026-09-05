@@ -38,6 +38,7 @@ import {
   moveBookToDirectory,
   querySemanticSearch,
   removeBookFromDirectory,
+  removeBookIndex,
   sendChatMessageStream as apiSendChatMessageStream,
   setStoredSessionToken,
   triggerBookIndex,
@@ -140,6 +141,7 @@ export interface AppState {
   indexingStatus: Record<string, DocumentProcessingResponse>;
   pollingTimers: Record<string, number>;
   startIndexing: (bookId: string) => Promise<void>;
+  unindexBook: (bookId: string) => Promise<void>;
   pollIndexingStatus: (bookId: string) => Promise<void>;
   stopIndexingPoll: (bookId: string) => void;
 
@@ -398,7 +400,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (prevBookId && prevPage) {
       try {
         localStorage.setItem(`cloudreader_last_page_${prevBookId}`, String(prevPage));
-      } catch (e) {}
+      } catch (e) { }
     }
 
     set({
@@ -428,10 +430,10 @@ export const useAppStore = create<AppState>((set, get) => ({
         cached?.currentPage && cached.currentPage > 0
           ? cached.currentPage
           : bookObj?.currentPage && bookObj.currentPage > 0
-          ? bookObj.currentPage
-          : localSaved > 0
-          ? localSaved
-          : 1;
+            ? bookObj.currentPage
+            : localSaved > 0
+              ? localSaved
+              : 1;
 
       set({
         activeBookBytes: bytes,
@@ -454,7 +456,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       // Synchronously record last read page so immediate tab closing/switching retains it
       try {
         localStorage.setItem(`cloudreader_last_page_${activeBookId}`, String(page));
-      } catch (e) {}
+      } catch (e) { }
 
       updateBookStats(activeBookId, (prev) => ({
         ...prev,
@@ -678,6 +680,30 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
+  unindexBook: async (bookId: string) => {
+    get().stopIndexingPoll(bookId);
+    try {
+      await removeBookIndex(bookId);
+      // Reset the book's indexing status in store to NOT_INDEXED
+      set((state) => ({
+        indexingStatus: {
+          ...state.indexingStatus,
+          [bookId]: {
+            id: bookId,
+            document_id: bookId,
+            status: 'NOT_INDEXED' as any,
+            total_pages: 0,
+            total_chunks: 0,
+            processed_chunks: 0,
+          },
+        },
+        activeMarkdown: state.activeBookId === bookId ? null : state.activeMarkdown,
+      }));
+    } catch (err) {
+      alert(`Could not remove from index: ${getApiErrorMessage(err)}`);
+    }
+  },
+
   pollIndexingStatus: async (bookId: string) => {
     // Clear any existing poll timer for this book
     get().stopIndexingPoll(bookId);
@@ -692,12 +718,25 @@ export const useAppStore = create<AppState>((set, get) => ({
           },
         }));
 
-        // Stop polling once finished or failed
-        if (status.status === 'INDEXED' || status.status === 'FAILED') {
+        // Stop polling once finished, failed, or unindexed
+        if (status.status === 'INDEXED' || status.status === 'FAILED' || status.status === 'UPLOADED') {
           get().stopIndexingPoll(bookId);
         }
       } catch (err) {
-        // If 404 or not indexed yet, don't crash
+        // If 404 or not indexed yet, set explicit UNINDEXED status
+        set((state) => ({
+          indexingStatus: {
+            ...state.indexingStatus,
+            [bookId]: {
+              id: bookId,
+              document_id: bookId,
+              status: 'NOT_INDEXED' as any,
+              total_pages: 0,
+              total_chunks: 0,
+              processed_chunks: 0,
+            },
+          },
+        }));
         get().stopIndexingPoll(bookId);
       }
     };
@@ -706,7 +745,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     await check();
 
     const currentStatus = get().indexingStatus[bookId];
-    if (currentStatus?.status === 'PROCESSING' || currentStatus?.status === 'UPLOADED') {
+    if (currentStatus?.status === 'PROCESSING') {
       const intervalId = window.setInterval(check, 2500);
       set((state) => ({
         pollingTimers: {

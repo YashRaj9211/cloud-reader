@@ -1,10 +1,10 @@
-import React, { useRef, useState } from 'react';
-import { 
-  FileText, 
-  Trash2, 
-  Search, 
-  UploadCloud, 
-  User, 
+import React, { useRef, useState } from "react";
+import {
+  FileText,
+  Trash2,
+  Search,
+  UploadCloud,
+  User,
   LogOut,
   Moon,
   Sun,
@@ -14,17 +14,23 @@ import {
   Sparkles,
   Layers,
   StickyNote,
-} from 'lucide-react';
-import { useAppStore } from '../store';
-import { FolderTree } from './folders/FolderTree';
-import { IndexingProgressBar } from './common/IndexingProgressBar';
-import { Button } from './ui/Button';
+  RefreshCw,
+  AlertCircle,
+  MoreVertical,
+  DatabaseZap,
+} from "lucide-react";
+import { useAppStore } from "../store";
+import { FolderTree } from "./folders/FolderTree";
+import { IndexingProgressBar } from "./common/IndexingProgressBar";
+import { Button } from "./ui/Button";
 
 export interface DocumentSidebarProps {
   onClose?: () => void;
 }
 
-export const DocumentSidebar: React.FC<DocumentSidebarProps> = ({ onClose }) => {
+export const DocumentSidebar: React.FC<DocumentSidebarProps> = ({
+  onClose,
+}) => {
   const {
     books,
     activeBookId,
@@ -40,26 +46,33 @@ export const DocumentSidebar: React.FC<DocumentSidebarProps> = ({ onClose }) => 
     activeFolderId,
     indexingStatus,
     startIndexing,
+    unindexBook,
+    pollIndexingStatus,
     globalNotes,
     changePage,
   } = useAppStore();
 
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState("");
   const [isDragging, setIsDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [openMenuBookId, setOpenMenuBookId] = useState<string | null>(null);
 
   // Filter books by active folder and search query
   const filteredBooks = books.filter((book) => {
-    const matchesSearch = book.name.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesFolder = activeFolderId ? book.directoryId === activeFolderId : true;
+    const matchesSearch = book.name
+      .toLowerCase()
+      .includes(searchQuery.toLowerCase());
+    const matchesFolder = activeFolderId
+      ? book.directoryId === activeFolderId
+      : true;
     return matchesSearch && matchesFolder;
   });
 
   const triggerUpload = async (file: File) => {
-    if (file.type !== 'application/pdf' && !file.name.endsWith('.pdf')) {
-      setUploadError('Only PDF files are supported.');
+    if (file.type !== "application/pdf" && !file.name.endsWith(".pdf")) {
+      setUploadError("Only PDF files are supported.");
       return;
     }
     setUploadError(null);
@@ -68,7 +81,7 @@ export const DocumentSidebar: React.FC<DocumentSidebarProps> = ({ onClose }) => 
       await uploadBook(file);
     } catch (err: any) {
       console.error(err);
-      setUploadError(err.message || 'Error uploading file.');
+      setUploadError(err.message || "Error uploading file.");
     } finally {
       setUploading(false);
     }
@@ -98,11 +111,11 @@ export const DocumentSidebar: React.FC<DocumentSidebarProps> = ({ onClose }) => 
   };
 
   const formatSize = (bytes?: number) => {
-    if (!bytes) return '0 B';
+    if (!bytes) return "0 B";
     const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const sizes = ["B", "KB", "MB", "GB"];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
   };
 
   return (
@@ -110,7 +123,9 @@ export const DocumentSidebar: React.FC<DocumentSidebarProps> = ({ onClose }) => 
       {/* Top Header: Minimal Library title & actions */}
       <div className="px-4 py-3 border-b border-stone-200/50 dark:border-stone-800/50 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold uppercase tracking-wider text-stone-400">Library</span>
+          <span className="text-xs font-semibold uppercase tracking-wider text-stone-400">
+            Library
+          </span>
           <span className="text-[10px] font-mono text-stone-400 bg-stone-100 dark:bg-stone-800 px-1.5 py-0.5 rounded-full">
             {books.length}
           </span>
@@ -135,7 +150,7 @@ export const DocumentSidebar: React.FC<DocumentSidebarProps> = ({ onClose }) => 
 
           <button
             onClick={toggleDarkMode}
-            title={darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+            title={darkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
             className="p-1.5 rounded-lg text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 transition-colors"
           >
             {darkMode ? <Sun size={15} /> : <Moon size={15} />}
@@ -156,31 +171,31 @@ export const DocumentSidebar: React.FC<DocumentSidebarProps> = ({ onClose }) => 
       {/* Minimal Tabs: Files | Folders | Notes */}
       <div className="flex items-center px-3 pt-2 pb-1 gap-1 border-b border-stone-200/40 dark:border-stone-800/40 text-xs">
         <button
-          onClick={() => setActiveSidebarTab('documents')}
+          onClick={() => setActiveSidebarTab("documents")}
           className={`flex-1 py-1 px-2 rounded-lg text-center font-medium transition-all ${
-            activeSidebarTab === 'documents'
-              ? 'bg-stone-200/60 dark:bg-stone-800 text-stone-900 dark:text-white'
-              : 'text-stone-400 hover:text-stone-700 dark:hover:text-stone-300'
+            activeSidebarTab === "documents"
+              ? "bg-stone-200/60 dark:bg-stone-800 text-stone-900 dark:text-white"
+              : "text-stone-400 hover:text-stone-700 dark:hover:text-stone-300"
           }`}
         >
           Files
         </button>
         <button
-          onClick={() => setActiveSidebarTab('folders')}
+          onClick={() => setActiveSidebarTab("folders")}
           className={`flex-1 py-1 px-2 rounded-lg text-center font-medium transition-all ${
-            activeSidebarTab === 'folders'
-              ? 'bg-stone-200/60 dark:bg-stone-800 text-stone-900 dark:text-white'
-              : 'text-stone-400 hover:text-stone-700 dark:hover:text-stone-300'
+            activeSidebarTab === "folders"
+              ? "bg-stone-200/60 dark:bg-stone-800 text-stone-900 dark:text-white"
+              : "text-stone-400 hover:text-stone-700 dark:hover:text-stone-300"
           }`}
         >
           Folders
         </button>
         <button
-          onClick={() => setActiveSidebarTab('notes')}
+          onClick={() => setActiveSidebarTab("notes")}
           className={`flex-1 py-1 px-2 rounded-lg text-center font-medium transition-all ${
-            activeSidebarTab === 'notes'
-              ? 'bg-stone-200/60 dark:bg-stone-800 text-stone-900 dark:text-white'
-              : 'text-stone-400 hover:text-stone-700 dark:hover:text-stone-300'
+            activeSidebarTab === "notes"
+              ? "bg-stone-200/60 dark:bg-stone-800 text-stone-900 dark:text-white"
+              : "text-stone-400 hover:text-stone-700 dark:hover:text-stone-300"
           }`}
         >
           Notes
@@ -188,12 +203,15 @@ export const DocumentSidebar: React.FC<DocumentSidebarProps> = ({ onClose }) => 
       </div>
 
       {/* Tab Content 1: Documents list */}
-      {activeSidebarTab === 'documents' && (
+      {activeSidebarTab === "documents" && (
         <>
           {/* Subtle Search bar */}
           <div className="px-3 pt-2.5 pb-1">
             <div className="relative">
-              <Search className="absolute left-2.5 top-2 text-stone-400" size={13} />
+              <Search
+                className="absolute left-2.5 top-2 text-stone-400"
+                size={13}
+              />
               <input
                 type="text"
                 placeholder="Filter files…"
@@ -203,7 +221,9 @@ export const DocumentSidebar: React.FC<DocumentSidebarProps> = ({ onClose }) => 
               />
             </div>
             {uploadError && (
-              <p className="mt-1 text-[10px] text-red-500 font-medium">{uploadError}</p>
+              <p className="mt-1 text-[10px] text-red-500 font-medium">
+                {uploadError}
+              </p>
             )}
           </div>
 
@@ -211,20 +231,32 @@ export const DocumentSidebar: React.FC<DocumentSidebarProps> = ({ onClose }) => 
           <div className="flex-1 overflow-y-auto px-2 py-1 space-y-0.5">
             {filteredBooks.length === 0 ? (
               <div className="py-10 text-center flex flex-col items-center justify-center">
-                <FileText size={22} className="text-stone-300 dark:text-stone-700 mb-1" />
-                <p className="text-xs text-stone-400 font-medium">No files found</p>
+                <FileText
+                  size={22}
+                  className="text-stone-300 dark:text-stone-700 mb-1"
+                />
+                <p className="text-xs text-stone-400 font-medium">
+                  No files found
+                </p>
               </div>
             ) : (
               filteredBooks.map((book) => {
                 const isActive = book.id === activeBookId;
                 const currentPage = book.currentPage || 1;
                 const totalPages = book.totalPages || 1;
-                const percent = Math.min(100, Math.max(0, Math.round((currentPage / totalPages) * 100)));
-                
+                const percent = Math.min(
+                  100,
+                  Math.max(0, Math.round((currentPage / totalPages) * 100)),
+                );
+
                 // SVG Circle Progress calculation (radius = 9, circumference = 2 * PI * 9 ~= 56.55)
                 const radius = 9;
                 const circumference = 2 * Math.PI * radius;
-                const strokeDashoffset = circumference - (percent / 100) * circumference;
+                const strokeDashoffset =
+                  circumference - (percent / 100) * circumference;
+
+                const bookStatus = indexingStatus[book.id];
+                const status = bookStatus?.status;
 
                 return (
                   <div
@@ -232,23 +264,23 @@ export const DocumentSidebar: React.FC<DocumentSidebarProps> = ({ onClose }) => 
                     onClick={() => selectBook(book.id)}
                     className={`group px-2.5 py-2 rounded-lg cursor-pointer flex items-center justify-between gap-2 transition-all ${
                       isActive
-                        ? 'bg-stone-200/70 dark:bg-stone-800 text-stone-900 dark:text-white font-medium'
-                        : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100/80 dark:hover:bg-stone-850 hover:text-stone-900 dark:hover:text-stone-200'
+                        ? "bg-stone-200/70 dark:bg-stone-800 text-stone-900 dark:text-white font-medium"
+                        : "text-stone-600 dark:text-stone-400 hover:bg-stone-100/80 dark:hover:bg-stone-850 hover:text-stone-900 dark:hover:text-stone-200"
                     }`}
                   >
                     <div className="flex items-center gap-2 min-w-0 flex-1">
                       <FileText
                         size={14}
-                        className={`shrink-0 ${isActive ? 'text-[#fa5d19]' : 'text-stone-400'}`}
+                        className={`shrink-0 ${isActive ? "text-[#fa5d19]" : "text-stone-400"}`}
                       />
                       <span className="text-xs truncate" title={book.name}>
-                        {book.name.replace(/\.[^/.]+$/, '')}
+                        {book.name.replace(/\.[^/.]+$/, "")}
                       </span>
                     </div>
 
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex items-center gap-0 shrink-0">
                       {/* Reading progress: Circular progress + page fraction */}
-                      <div className="flex items-center gap-1.5 text-[10px] font-mono text-stone-400 group-hover:text-stone-600 dark:group-hover:text-stone-300 transition-colors">
+                      <div className="flex items-center gap-1 text-[10px] font-mono text-stone-400 group-hover:text-stone-600 dark:group-hover:text-stone-300 transition-colors">
                         {book.totalPages && book.totalPages > 1 && (
                           <span className="hidden sm:inline-block">
                             {currentPage}/{totalPages}
@@ -256,15 +288,21 @@ export const DocumentSidebar: React.FC<DocumentSidebarProps> = ({ onClose }) => 
                         )}
 
                         {/* Circular Progress Gauge */}
-                        <div className="relative w-6 h-6 flex items-center justify-center" title={`${percent}% read (${currentPage}/${totalPages} pages)`}>
-                          <svg className="w-6 h-6 -rotate-90 transform" viewBox="0 0 24 24">
+                        <div
+                          className="relative w-5 h-5 flex items-center justify-center"
+                          title={`${percent}% read (${currentPage}/${totalPages} pages)`}
+                        >
+                          <svg
+                            className="w-5 h-5 -rotate-90 transform"
+                            viewBox="0 0 24 24"
+                          >
                             {/* Track */}
                             <circle
                               cx="12"
                               cy="12"
                               r={radius}
                               stroke="currentColor"
-                              strokeWidth="2"
+                              strokeWidth="2.5"
                               fill="none"
                               className="text-stone-200 dark:text-stone-700/60"
                             />
@@ -274,30 +312,110 @@ export const DocumentSidebar: React.FC<DocumentSidebarProps> = ({ onClose }) => 
                               cy="12"
                               r={radius}
                               stroke="currentColor"
-                              strokeWidth="2"
+                              strokeWidth="2.5"
                               strokeDasharray={circumference}
                               strokeDashoffset={strokeDashoffset}
                               strokeLinecap="round"
                               fill="none"
-                              className={isActive ? 'text-[#fa5d19]' : 'text-stone-400 dark:text-stone-500'}
+                              className={
+                                isActive
+                                  ? "text-[#fa5d19]"
+                                  : "text-stone-400 dark:text-stone-500"
+                              }
                             />
                           </svg>
-                          <span className="absolute text-[8px] font-mono font-medium leading-none">
+                          <span className="absolute text-[7.5px] font-mono font-medium leading-none">
                             {percent}
                           </span>
                         </div>
                       </div>
 
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          deleteBook(book.id);
-                        }}
-                        className="opacity-0 group-hover:opacity-100 p-1 rounded text-stone-400 hover:text-red-500 hover:bg-red-500/10 transition-all"
-                        title="Delete"
-                      >
-                        <Trash2 size={12} />
-                      </button>
+                      {/* Three-dot context menu */}
+                      <div className="relative -mr-1">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const nextOpen = openMenuBookId === book.id ? null : book.id;
+                            setOpenMenuBookId(nextOpen);
+                            if (nextOpen && !indexingStatus[book.id]) {
+                              pollIndexingStatus(book.id);
+                            }
+                          }}
+                          className={`p-0.5 rounded text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 hover:bg-stone-200/60 dark:hover:bg-stone-700/60 transition-all ${
+                            openMenuBookId === book.id
+                              ? "opacity-100 bg-stone-200/60 dark:bg-stone-700/60"
+                              : "opacity-0 group-hover:opacity-100"
+                          }`}
+                          title="More options"
+                        >
+                          <MoreVertical size={13} />
+                        </button>
+
+                        {openMenuBookId === book.id && (
+                          <>
+                            {/* Dismiss backdrop */}
+                            <div
+                              className="fixed inset-0 z-40"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setOpenMenuBookId(null);
+                              }}
+                            />
+                            {/* Context Menu Dropdown */}
+                            <div
+                              className="absolute right-0 top-full mt-1 w-36 py-1 bg-white dark:bg-stone-850 rounded-lg shadow-xl border border-stone-200/90 dark:border-stone-700/90 z-50 text-xs animate-in fade-in zoom-in-95 duration-100"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {status === "INDEXED" ? (
+                                <button
+                                  onClick={() => {
+                                    setOpenMenuBookId(null);
+                                    unindexBook(book.id);
+                                  }}
+                                  className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-700 dark:text-stone-200 transition-colors"
+                                >
+                                  <DatabaseZap
+                                    size={13}
+                                    className="text-stone-400 shrink-0"
+                                  />
+                                  <span>Remove from Index</span>
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => {
+                                    setOpenMenuBookId(null);
+                                    startIndexing(book.id);
+                                  }}
+                                  className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-700 dark:text-stone-200 transition-colors"
+                                >
+                                  <Sparkles
+                                    size={13}
+                                    className="text-[#fa5d19] shrink-0"
+                                  />
+                                  <span>
+                                    {status === "PROCESSING"
+                                      ? "Indexing in progress…"
+                                      : "Index for AI"}
+                                  </span>
+                                </button>
+                              )}
+
+                              <div className="h-px bg-stone-100 dark:bg-stone-750 my-0.5" />
+
+                              <button
+                                onClick={() => {
+                                  setOpenMenuBookId(null);
+                                  deleteBook(book.id);
+                                }}
+                                className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-red-500/10 text-red-600 dark:text-red-400 transition-colors"
+                              >
+                                <Trash2 size={13} className="shrink-0" />
+                                <span>Delete</span>
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );
@@ -308,21 +426,22 @@ export const DocumentSidebar: React.FC<DocumentSidebarProps> = ({ onClose }) => 
       )}
 
       {/* Tab Content 2: Folder Tree */}
-      {activeSidebarTab === 'folders' && (
+      {activeSidebarTab === "folders" && (
         <div className="flex-1 overflow-y-auto px-2 py-2">
-          <FolderTree onSelectFolder={() => setActiveSidebarTab('documents')} />
+          <FolderTree onSelectFolder={() => setActiveSidebarTab("documents")} />
         </div>
       )}
 
       {/* Tab Content 3: Global Notes */}
-      {activeSidebarTab === 'notes' && (
+      {activeSidebarTab === "notes" && (
         <div className="flex-1 overflow-y-auto p-3 space-y-2 text-xs">
           <div className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider px-1">
             Global Notes Across Books ({globalNotes.length})
           </div>
           {globalNotes.length === 0 ? (
             <p className="text-stone-400 text-center py-6 text-xs">
-              No sticky notes added yet. Click Sticky Note while viewing any page to annotate!
+              No sticky notes added yet. Click Sticky Note while viewing any
+              page to annotate!
             </p>
           ) : (
             globalNotes.map((note) => (
@@ -354,7 +473,7 @@ export const DocumentSidebar: React.FC<DocumentSidebarProps> = ({ onClose }) => 
             {user.picture ? (
               <img
                 src={user.picture}
-                alt={user.name || 'Avatar'}
+                alt={user.name || "Avatar"}
                 referrerPolicy="no-referrer"
                 className="w-7 h-7 rounded-full object-cover ring-1 ring-stone-200 dark:ring-stone-700 shrink-0"
               />
@@ -363,10 +482,10 @@ export const DocumentSidebar: React.FC<DocumentSidebarProps> = ({ onClose }) => 
                 <User size={13} />
               </div>
             )}
-            
+
             <div className="min-w-0">
               <p className="text-xs font-medium truncate text-stone-800 dark:text-stone-200">
-                {user.name || 'User'}
+                {user.name || "User"}
               </p>
             </div>
           </div>
