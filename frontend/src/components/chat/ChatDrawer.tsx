@@ -318,6 +318,31 @@ export const ChatDrawer: React.FC = () => {
 
         {/* Chat Input Bar */}
         <div className="p-3 border-t border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900">
+          {/* Quick Action Suggestions */}
+          <div className="flex items-center gap-1.5 mb-2.5 overflow-x-auto pb-0.5 scrollbar-none">
+            <button
+              type="button"
+              onClick={() => {
+                setInputMessage('Generate an interactive p5.js animation to visually explain the main concept of this document');
+                inputRef.current?.focus();
+              }}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-[#fa5d19]/10 text-[#fa5d19] hover:bg-[#fa5d19]/20 border border-[#fa5d19]/30 transition-colors shrink-0 cursor-pointer shadow-xs"
+            >
+              <Sparkles className="w-3 h-3 text-[#fa5d19]" />
+              <span>Animate with p5.js</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setInputMessage('Create an interactive simulation of the core mechanism in this document');
+                inputRef.current?.focus();
+              }}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-600 dark:text-stone-300 border border-stone-200 dark:border-stone-700 transition-colors shrink-0 cursor-pointer"
+            >
+              <span>Simulate Mechanism</span>
+            </button>
+          </div>
+
           <form onSubmit={handleSend} className="relative flex items-center">
             <input
               ref={inputRef}

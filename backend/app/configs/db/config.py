@@ -73,7 +73,13 @@ def _create_database_engine(raw_url: str):
             auth = f"{parsed.username}:{parsed.password}@" if parsed.username else ""
             clean_url = urlunparse(parsed._replace(netloc=f"{auth}{resolved_ip}{port_str}"))
 
-    # ponytail: Synchronous psycopg2 engine with pre-ping.
+    # TCP keepalives to prevent idle SSL drops by Neon / NAT gateways
+    connect_args.setdefault("keepalives", 1)
+    connect_args.setdefault("keepalives_idle", 30)
+    connect_args.setdefault("keepalives_interval", 10)
+    connect_args.setdefault("keepalives_count", 5)
+
+    # ponytail: Synchronous psycopg2 engine with pre-ping and recycle.
     # Ceiling: Max 15 concurrent pooled DB connections.
     # Upgrade path: Migrate all routers to asyncpg + AsyncSession when high concurrency is required.
     return create_engine(
@@ -81,6 +87,7 @@ def _create_database_engine(raw_url: str):
         pool_size=DB_POOL_SIZE,
         max_overflow=DB_MAX_OVERFLOW,
         pool_pre_ping=True,
+        pool_recycle=int(os.getenv("DB_POOL_RECYCLE", "180")),
         connect_args=connect_args,
     )
 

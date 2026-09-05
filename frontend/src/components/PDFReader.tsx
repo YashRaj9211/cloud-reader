@@ -22,6 +22,8 @@ import {
   Eraser,
   ScrollText,
   FileText,
+  ChevronDown,
+  Shapes,
 } from 'lucide-react';
 import {
   Highlight,
@@ -41,7 +43,9 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
 
 // ─── Configuration ──────────────────────────────────────────────────────────
 // How many pages to render above and below the current page in continuous mode.
-const PRELOAD_WINDOW = 2;
+// A wider window (5) prevents unmounting pages currently within user view or close by,
+// eliminating scroll stutter, abrupt height changes, and canvas re-renders.
+const PRELOAD_WINDOW = 5;
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -115,6 +119,10 @@ export default function PDFReader({
   const [annotColor, setAnnotColor] = useState<string>('#fa5d19');
   const [inkWidth, setInkWidth] = useState<number>(3);
   const [hlWidth, setHlWidth] = useState<number>(18);
+
+  // ── Dropdown menus for cleaner compact toolbar ───────────────────────────
+  const [shapesDropdownOpen, setShapesDropdownOpen] = useState<boolean>(false);
+  const [paletteOpen, setPaletteOpen] = useState<boolean>(false);
 
   // ── Selected shape (for delete) ───────────────────────────────────────────
   const [selectedShapeId, setSelectedShapeId] = useState<string | null>(null);
@@ -375,12 +383,13 @@ export default function PDFReader({
     }
   }, []);
 
-  // ─── External page change sync (from AnnotationPanel, search, etc.) ───────
+  // ─── External page change sync (from AnnotationPanel, search, sidebar, etc.) ─
   const lastScrolledPage = useRef(currentPage);
   useEffect(() => {
+    // Only invoke programmatic scrollToPage if this page change was NOT caused by user continuous scrolling
     if (lastScrolledPage.current !== currentPage) {
       lastScrolledPage.current = currentPage;
-      if (isContinuous) {
+      if (isContinuous && !isScrollingProgrammatically.current) {
         scrollToPage(currentPage, 'smooth');
       }
     }
@@ -474,10 +483,10 @@ export default function PDFReader({
           setSelectedShapeId(null);
         }}
         title={label}
-        className={`p-2 rounded-lg flex items-center gap-1.5 text-xs font-medium transition-all ${
+        className={`px-2.5 py-1.5 rounded-full flex items-center gap-1.5 text-xs font-semibold transition-all ${
           active
-            ? 'bg-[#fa5d19] text-white shadow-sm'
-            : 'text-zinc-600 dark:text-zinc-400 hover:bg-(--color-surface-container-high)'
+            ? 'bg-[#fa5d19] text-white shadow-xs'
+            : 'text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 hover:text-stone-900 dark:hover:text-white'
         }`}
       >
         {icon}
@@ -494,10 +503,10 @@ export default function PDFReader({
         setActiveShape(kind);
       }}
       title={label}
-      className={`p-2 rounded-lg flex items-center gap-1 text-xs transition-all ${
+      className={`p-1.5 rounded-xl flex items-center gap-1 text-xs transition-all ${
         toolMode === 'shape' && activeShape === kind
-          ? 'bg-[#fa5d19] text-white shadow-sm'
-          : 'text-zinc-600 dark:text-zinc-400 hover:bg-(--color-surface-container-high)'
+          ? 'bg-[#fa5d19] text-white shadow-xs'
+          : 'text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 hover:text-stone-900 dark:hover:text-white'
       }`}
     >
       {icon}
@@ -567,204 +576,257 @@ export default function PDFReader({
   return (
     <div
       id="pdf-reader-root"
-      className="flex flex-col h-full rounded-2xl border border-(--color-outline-variant) bg-(--color-surface) text-(--color-on-surface) transition-colors duration-300 overflow-hidden shadow-sm"
+      className="flex flex-col h-full bg-transparent text-(--color-on-surface) transition-colors duration-300 overflow-hidden relative"
     >
-      {/* ── Toolbar ── */}
-      <div className="flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 border-b border-(--color-outline-variant) bg-(--color-surface) shrink-0 overflow-x-auto no-scrollbar">
-        {/* 1. Page navigation */}
-        <div className="flex items-center gap-0.5 sm:gap-1 shrink-0">
-          <button
-            id="reader-prev-btn"
-            onClick={() => handlePageSelectAndScroll(currentPage - 1)}
-            disabled={currentPage <= 1 || loading}
-            className="p-1 sm:p-1.5 rounded-lg transition-colors text-zinc-500 hover:bg-(--color-surface-container-high) disabled:opacity-30"
-            title="Previous page"
-          >
-            <ChevronLeft size={16} />
-          </button>
-          <div className="flex items-center gap-0.5 sm:gap-1 text-xs font-mono px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-lg border border-(--color-outline-variant) bg-(--color-surface-container-lowest)">
-            <input
-              id="reader-page-jump"
-              type="number"
-              min={1}
-              max={totalPages}
-              value={currentPage}
-              onChange={(e) => {
-                const v = parseInt(e.target.value, 10);
-                if (v >= 1 && v <= totalPages) handlePageSelectAndScroll(v);
-              }}
-              className="w-8 sm:w-10 text-center bg-transparent outline-none font-semibold text-(--color-on-surface)"
-            />
-            <span className="text-zinc-400">/{totalPages}</span>
-          </div>
-          <button
-            id="reader-next-btn"
-            onClick={() => handlePageSelectAndScroll(currentPage + 1)}
-            disabled={currentPage >= totalPages || loading}
-            className="p-1 sm:p-1.5 rounded-lg transition-colors text-zinc-500 hover:bg-(--color-surface-container-high) disabled:opacity-30"
-            title="Next page"
-          >
-            <ChevronRight size={16} />
-          </button>
-        </div>
-
-        {divider}
-
-        {/* 2. Continuous Scroll / Single Page Toggle */}
-        <div className="flex items-center p-0.5 rounded-lg border border-(--color-outline-variant) bg-(--color-surface-container-lowest) shrink-0">
-          <button
-            onClick={() => setIsContinuous(true)}
-            title="Continuous Scroll"
-            className={`flex items-center justify-center px-1.5 py-1 rounded-md text-[11px] sm:text-xs font-medium transition-all ${
-              isContinuous
-                ? 'bg-[#fa5d19] text-white shadow-sm'
-                : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'
-            }`}
-          >
-            <ScrollText size={13} />
-            <span className="hidden md:inline ml-1">Continuous</span>
-          </button>
-          <button
-            onClick={() => setIsContinuous(false)}
-            title="Single Page"
-            className={`flex items-center justify-center px-1.5 py-1 rounded-md text-[11px] sm:text-xs font-medium transition-all ${
-              !isContinuous
-                ? 'bg-[#fa5d19] text-white shadow-sm'
-                : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'
-            }`}
-          >
-            <FileText size={13} />
-            <span className="hidden md:inline ml-1">Single</span>
-          </button>
-        </div>
-
-        {/* 3. Width & Page Fit Quick Buttons */}
-        <div className="flex items-center gap-1 shrink-0">
-          <button
-            onClick={fitToWidth}
-            title="Fit to Width"
-            className="px-2 py-1 rounded-lg text-[11px] sm:text-xs font-semibold transition-all bg-(--color-surface-container-high) hover:bg-[#fa5d19]/15 hover:text-[#fa5d19] text-(--color-on-surface) border border-(--color-outline-variant) shadow-2xs"
-          >
-            Width
-          </button>
-          <button
-            onClick={fitToPage}
-            title="Fit whole page in screen"
-            className="px-2 py-1 rounded-lg text-[11px] sm:text-xs font-semibold transition-all bg-(--color-surface-container-high) hover:bg-[#fa5d19]/15 hover:text-[#fa5d19] text-(--color-on-surface) border border-(--color-outline-variant) shadow-2xs"
-          >
-            Page
-          </button>
-        </div>
-
-        {divider}
-
-        {/* 4. Annotation Tools */}
-        <div className="flex items-center gap-0.5 shrink-0">
-          {toolBtn('tool-view', 'view', <MousePointer size={15} />, 'Navigate')}
-          {toolBtn('tool-highlight', 'highlight', <Highlighter size={15} />, 'Highlight')}
-          {toolMode === 'highlight' && (
-            <div className="flex items-center gap-1 ml-1">
-              {[10, 16, 22, 30].map((w) => (
-                <button
-                  key={w}
-                  onClick={() => setHlWidth(w)}
-                  title={`${w}px highlighter`}
-                  className={`rounded-full border-2 transition-all ${
-                    hlWidth === w
-                      ? 'border-[#fa5d19] scale-110'
-                      : 'border-(--color-outline-variant) hover:border-zinc-400'
-                  }`}
-                  style={{ width: Math.max(10, w * 0.6), height: Math.max(10, w * 0.6), backgroundColor: annotColor + '88' }}
-                />
-              ))}
-            </div>
-          )}
-          {toolBtn('tool-note', 'note', <MessageSquare size={15} />, 'Note')}
-          {toolBtn('tool-ink', 'ink', <Pen size={15} />, 'Pen')}
-          {toolMode === 'ink' && (
-            <select
-              value={inkWidth}
-              onChange={(e) => setInkWidth(Number(e.target.value))}
-              className="text-xs rounded-md px-1 py-0.5 border border-(--color-outline-variant) bg-(--color-surface) text-(--color-on-surface) outline-none"
-            >
-              {[1, 2, 3, 5, 8].map((w) => <option key={w} value={w}>{w}px</option>)}
-            </select>
-          )}
-          {toolBtn('tool-eraser', 'eraser', <Eraser size={15} />, 'Eraser')}
-          {shapeBtn('rect', <Square size={15} />, 'Rectangle')}
-          {shapeBtn('circle', <Circle size={15} />, 'Circle')}
-          {shapeBtn('line', <Minus size={15} />, 'Line')}
-          {shapeBtn('arrow', <MoveRight size={15} />, 'Arrow')}
-          {toolBtn('tool-textbox', 'textbox', <Type size={15} />, 'Text')}
-        </div>
-
-        {divider}
-
-        {/* 5. Colour palette */}
-        <div className="flex items-center gap-1 shrink-0">
-          {paletteColors.map((c) => (
+      {/* ── Floating Reading Document Toolbar (Minimalist Clean Floating Style) ── */}
+      <div className="z-20 px-3 sm:px-6 pt-3 pb-1 shrink-0 flex justify-center w-full pointer-events-none">
+        <div className="flex items-center gap-1.5 sm:gap-2.5 px-3 py-1.5 rounded-full bg-white/95 dark:bg-stone-900/95 backdrop-blur-xl border border-stone-200/80 dark:border-stone-700/80 shadow-[0_4px_24px_-2px_rgba(0,0,0,0.08),0_1px_3px_rgba(0,0,0,0.04)] dark:shadow-[0_4px_24px_-2px_rgba(0,0,0,0.6)] pointer-events-auto select-none">
+          {/* 1. Page navigation Pill */}
+          <div className="flex items-center gap-0.5 shrink-0 bg-stone-100/80 dark:bg-stone-800/80 p-0.5 rounded-full border border-stone-200/60 dark:border-stone-700/60">
             <button
-              key={c}
-              onClick={() => setAnnotColor(c)}
-              title={c}
-              className={`rounded-full border-2 transition-transform hover:scale-110 ${
-                annotColor === c ? 'scale-125 border-white shadow-md ring-2 ring-[#fa5d19]' : 'border-transparent'
+              id="reader-prev-btn"
+              onClick={() => handlePageSelectAndScroll(currentPage - 1)}
+              disabled={currentPage <= 1 || loading}
+              className="p-1 rounded-full transition-colors text-stone-600 dark:text-stone-300 hover:bg-white dark:hover:bg-stone-700 disabled:opacity-30"
+              title="Previous page"
+            >
+              <ChevronLeft size={14} />
+            </button>
+            <div className="flex items-center gap-0.5 text-xs font-medium px-1.5">
+              <input
+                id="reader-page-jump"
+                type="number"
+                min={1}
+                max={totalPages}
+                value={currentPage}
+                onChange={(e) => {
+                  const v = parseInt(e.target.value, 10);
+                  if (v >= 1 && v <= totalPages) handlePageSelectAndScroll(v);
+                }}
+                className="w-7 text-center bg-transparent outline-none font-bold text-[#fa5d19]"
+              />
+              <span className="text-stone-400 font-normal">/ {totalPages}</span>
+            </div>
+            <button
+              id="reader-next-btn"
+              onClick={() => handlePageSelectAndScroll(currentPage + 1)}
+              disabled={currentPage >= totalPages || loading}
+              className="p-1 rounded-full transition-colors text-stone-600 dark:text-stone-300 hover:bg-white dark:hover:bg-stone-700 disabled:opacity-30"
+              title="Next page"
+            >
+              <ChevronRight size={14} />
+            </button>
+          </div>
+
+          <div className="h-4 w-px bg-stone-200 dark:bg-stone-800 mx-0.5" />
+
+          {/* 2. Core Reading Tools (Navigate / Highlight / Note / Pen) */}
+          <div className="flex items-center gap-1 shrink-0">
+            {toolBtn('tool-view', 'view', <MousePointer size={14} />, 'Navigate')}
+            {toolBtn('tool-highlight', 'highlight', <Highlighter size={14} />, 'Highlight')}
+            {toolBtn('tool-note', 'note', <MessageSquare size={14} />, 'Note')}
+            {toolBtn('tool-ink', 'ink', <Pen size={14} />, 'Pen')}
+
+            {/* Shapes Dropdown Menu */}
+            <div className="relative">
+              <button
+                onClick={() => {
+                  setShapesDropdownOpen((prev) => !prev);
+                  setPaletteOpen(false);
+                }}
+                title="Geometric Shapes & Text"
+                className={`px-2.5 py-1.5 rounded-full flex items-center gap-1 text-xs font-semibold transition-all ${
+                  toolMode === 'shape' || toolMode === 'textbox'
+                    ? 'bg-[#fa5d19] text-white shadow-xs'
+                    : 'text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800'
+                }`}
+              >
+                <Shapes size={14} />
+                <span className="hidden lg:inline capitalize">{toolMode === 'shape' ? activeShape : toolMode === 'textbox' ? 'Text' : 'Shapes'}</span>
+                <ChevronDown size={12} className="opacity-70" />
+              </button>
+
+              {shapesDropdownOpen && (
+                <div className="absolute top-full mt-2 left-0 z-50 p-1.5 bg-white dark:bg-stone-900 rounded-2xl shadow-xl border border-stone-200 dark:border-stone-800 flex flex-col gap-1 min-w-[130px] animate-in fade-in zoom-in-95 duration-100">
+                  <button
+                    onClick={() => {
+                      setToolMode('shape');
+                      setActiveShape('rect');
+                      setSelectedShapeId(null);
+                      setShapesDropdownOpen(false);
+                    }}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-medium transition-colors ${
+                      toolMode === 'shape' && activeShape === 'rect' ? 'bg-[#fa5d19] text-white' : 'hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-700 dark:text-stone-200'
+                    }`}
+                  >
+                    <Square size={14} />
+                    <span>Rectangle</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setToolMode('shape');
+                      setActiveShape('circle');
+                      setSelectedShapeId(null);
+                      setShapesDropdownOpen(false);
+                    }}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-medium transition-colors ${
+                      toolMode === 'shape' && activeShape === 'circle' ? 'bg-[#fa5d19] text-white' : 'hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-700 dark:text-stone-200'
+                    }`}
+                  >
+                    <Circle size={14} />
+                    <span>Circle</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setToolMode('shape');
+                      setActiveShape('line');
+                      setSelectedShapeId(null);
+                      setShapesDropdownOpen(false);
+                    }}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-medium transition-colors ${
+                      toolMode === 'shape' && activeShape === 'line' ? 'bg-[#fa5d19] text-white' : 'hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-700 dark:text-stone-200'
+                    }`}
+                  >
+                    <Minus size={14} />
+                    <span>Line</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setToolMode('shape');
+                      setActiveShape('arrow');
+                      setSelectedShapeId(null);
+                      setShapesDropdownOpen(false);
+                    }}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-medium transition-colors ${
+                      toolMode === 'shape' && activeShape === 'arrow' ? 'bg-[#fa5d19] text-white' : 'hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-700 dark:text-stone-200'
+                    }`}
+                  >
+                    <MoveRight size={14} />
+                    <span>Arrow</span>
+                  </button>
+                  <div className="h-px bg-stone-200 dark:bg-stone-800 my-0.5" />
+                  <button
+                    onClick={() => {
+                      setToolMode('textbox');
+                      setSelectedShapeId(null);
+                      setShapesDropdownOpen(false);
+                    }}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-medium transition-colors ${
+                      toolMode === 'textbox' ? 'bg-[#fa5d19] text-white' : 'hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-700 dark:text-stone-200'
+                    }`}
+                  >
+                    <Type size={14} />
+                    <span>Text Box</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setToolMode('eraser');
+                      setSelectedShapeId(null);
+                      setShapesDropdownOpen(false);
+                    }}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-medium transition-colors ${
+                      toolMode === 'eraser' ? 'bg-[#fa5d19] text-white' : 'hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-700 dark:text-stone-200'
+                    }`}
+                  >
+                    <Eraser size={14} />
+                    <span>Eraser</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Colour Picker Dropdown */}
+            <div className="relative">
+              <button
+                onClick={() => {
+                  setPaletteOpen((prev) => !prev);
+                  setShapesDropdownOpen(false);
+                }}
+                title="Annotation Color"
+                className="w-7 h-7 rounded-full flex items-center justify-center border-2 border-white dark:border-stone-800 shadow-xs transition-transform hover:scale-110"
+                style={{ backgroundColor: annotColor }}
+              >
+                <div className="w-1.5 h-1.5 rounded-full bg-white/70 shadow-xs" />
+              </button>
+
+              {paletteOpen && (
+                <div className="absolute top-full mt-2 left-1/2 -translate-x-1/2 z-50 p-2 bg-white dark:bg-stone-900 rounded-2xl shadow-xl border border-stone-200 dark:border-stone-800 grid grid-cols-4 gap-2 animate-in fade-in zoom-in-95 duration-100">
+                  {paletteColors.map((c) => (
+                    <button
+                      key={c}
+                      onClick={() => {
+                        setAnnotColor(c);
+                        setPaletteOpen(false);
+                      }}
+                      title={c}
+                      className={`w-6 h-6 rounded-full border-2 transition-transform hover:scale-110 ${
+                        annotColor === c ? 'scale-110 ring-2 ring-[#fa5d19] border-white' : 'border-transparent'
+                      }`}
+                      style={{ backgroundColor: c }}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="h-4 w-px bg-stone-200 dark:bg-stone-800 mx-0.5" />
+
+          {/* 3. Zoom Controls & View Mode Stepper */}
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              onClick={() => setZoom((p) => Math.max(0.4, p - 0.1))}
+              className="p-1 rounded-full transition-colors text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800"
+              title="Zoom Out"
+            >
+              <ZoomOut size={14} />
+            </button>
+            <button
+              onClick={() => setZoom((p) => (p !== 1.0 ? 1.0 : 1.5))}
+              className="text-[11px] font-mono px-2 py-0.5 rounded-full hover:bg-stone-100 dark:hover:bg-stone-800 text-center text-stone-700 dark:text-stone-300 font-semibold cursor-pointer"
+              title="Click to toggle fit (100%) / 150%"
+            >
+              {Math.round(zoom * 100)}%
+            </button>
+            <button
+              onClick={() => setZoom((p) => Math.min(3.0, p + 0.1))}
+              className="p-1 rounded-full transition-colors text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800"
+              title="Zoom In"
+            >
+              <ZoomIn size={14} />
+            </button>
+          </div>
+
+          <div className="h-4 w-px bg-stone-200 dark:bg-stone-800 mx-0.5" />
+
+          {/* 4. Secondary actions (Thumbnail Pages & Fullscreen) */}
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              onClick={() => setIsContinuous((prev) => !prev)}
+              title={isContinuous ? 'Switch to Single Page' : 'Switch to Continuous'}
+              className="p-1.5 rounded-full text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors"
+            >
+              {isContinuous ? <ScrollText size={14} /> : <FileText size={14} />}
+            </button>
+            <button
+              onClick={() => setThumbnailOpen((p) => !p)}
+              title="Toggle Page Thumbnails"
+              className={`p-1.5 rounded-full transition-all text-xs ${
+                thumbnailOpen
+                  ? 'bg-[#fa5d19] text-white shadow-xs'
+                  : 'text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800'
               }`}
-              style={{ backgroundColor: c, width: 16, height: 16 }}
-            />
-          ))}
-        </div>
-
-        {divider}
-
-        {/* 6. Zoom controls */}
-        <div className="flex items-center gap-0.5 shrink-0">
-          <button
-            onClick={() => setZoom((p) => Math.max(0.4, p - 0.1))}
-            className="p-1 sm:p-1.5 rounded-lg transition-colors text-zinc-500 hover:bg-(--color-surface-container-high)"
-            title="Zoom Out"
-          >
-            <ZoomOut size={15} />
-          </button>
-          <button
-            onClick={() => setZoom((p) => (p !== 1.0 ? 1.0 : 1.5))}
-            className="text-[11px] sm:text-xs font-mono px-1 py-0.5 rounded hover:bg-(--color-surface-container-high) text-center text-zinc-500 font-semibold cursor-pointer"
-            title="Click to toggle fit (100%) / 150%"
-          >
-            {Math.round(zoom * 100)}%
-          </button>
-          <button
-            onClick={() => setZoom((p) => Math.min(3.0, p + 0.1))}
-            className="p-1 sm:p-1.5 rounded-lg transition-colors text-zinc-500 hover:bg-(--color-surface-container-high)"
-            title="Zoom In"
-          >
-            <ZoomIn size={15} />
-          </button>
-        </div>
-
-        {divider}
-
-        {/* 7. Side Page Preview & Fullscreen */}
-        <div className="flex items-center gap-0.5 shrink-0">
-          <button
-            onClick={() => setThumbnailOpen((p) => !p)}
-            title="Toggle side page preview"
-            className={`flex items-center gap-1 p-1.5 rounded-lg transition-all text-xs font-medium ${
-              thumbnailOpen
-                ? 'bg-[#fa5d19] text-white shadow-sm'
-                : 'text-zinc-600 dark:text-zinc-400 hover:bg-(--color-surface-container-high) border border-(--color-outline-variant)/60'
-            }`}
-          >
-            <AlignJustify size={15} />
-            <span className="hidden sm:inline">Pages</span>
-          </button>
-          <button
-            onClick={toggleFullscreen}
-            title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
-            className="p-1.5 rounded-lg transition-colors text-zinc-500 hover:bg-(--color-surface-container-high)"
-          >
-            {isFullscreen ? <Minimize size={15} /> : <Maximize size={15} />}
-          </button>
+            >
+              <AlignJustify size={14} />
+            </button>
+            <button
+              onClick={toggleFullscreen}
+              title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+              className="p-1.5 rounded-full transition-colors text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800"
+            >
+              {isFullscreen ? <Minimize size={14} /> : <Maximize size={14} />}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -799,12 +861,12 @@ export default function PDFReader({
         {/* Main scroll / canvas container */}
         <div
           ref={containerRef}
-          className="flex-1 overflow-auto p-2 sm:p-4 relative bg-(--color-surface-container-lowest) scroll-smooth selection:text-transparent"
+          className="flex-1 overflow-auto p-2 sm:p-4 relative bg-stone-100/70 dark:bg-stone-950/70 selection:text-transparent"
         >
           {loading && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-zinc-900/5 backdrop-blur-sm z-50">
-              <div className="animate-spin rounded-full h-10 w-10 border-2 border-amber-500 border-t-transparent" />
-              <p className="text-sm font-medium text-zinc-500 animate-pulse">Reading file…</p>
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-stone-100/80 dark:bg-stone-900/80 backdrop-blur-sm z-50">
+              <div className="animate-spin rounded-full h-10 w-10 border-2 border-[#fa5d19] border-t-transparent" />
+              <p className="text-xs font-medium text-stone-600 dark:text-stone-400 animate-pulse">Rendering pages…</p>
             </div>
           )}
 

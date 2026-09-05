@@ -196,6 +196,9 @@ async def send_chat_message_controller(
     db.add(user_msg)
     db.commit()
     db.refresh(user_msg)
+    user_msg_payload = ChatMessageResponse.model_validate(user_msg).model_dump(mode="json")
+    session_id_val = session.id
+    is_default_title = (session.title == "New Chat")
 
     # 2. Run Google ADK multi-agent turn streaming
     async def stream_generator():
@@ -209,26 +212,59 @@ async def send_chat_message_controller(
                 if data["type"] == "chunk":
                     yield f"data: {json.dumps({'chunk': data['text']})}\n\n"
                 elif data["type"] == "done":
-                    # 3. Save assistant message to PostgreSQL
-                    assistant_msg = ChatMessage(
-                        session_id=session.id,
-                        role=MessageRole.ASSISTANT,
-                        content=data["text"],
-                    )
-                    db.add(assistant_msg)
+                    # 3. Save assistant message to PostgreSQL with connection drop resilience
+                    # Note: Long streaming turns (e.g. Playwright PDF rendering) can cause serverless
+                    # NeonDB connections to drop due to idle SSL timeouts. If primary db fails,
+                    # we retry with a fresh SessionLocal connection.
+                    assistant_msg_payload = None
+                    try:
+                        assistant_msg = ChatMessage(
+                            session_id=session_id_val,
+                            role=MessageRole.ASSISTANT,
+                            content=data["text"],
+                        )
+                        db.add(assistant_msg)
+                        if is_default_title:
+                            clean_title = message_text.replace("\n", " ")
+                            session.title = clean_title[:40] + ("..." if len(clean_title) > 40 else "")
+                        db.commit()
+                        db.refresh(assistant_msg)
+                        assistant_msg_payload = ChatMessageResponse.model_validate(assistant_msg).model_dump(mode="json")
+                    except Exception as db_err:
+                        logger.warning(
+                            "Primary DB connection dropped or timed out during stream (%s). Retrying with fresh SessionLocal...",
+                            db_err,
+                        )
+                        try:
+                            db.rollback()
+                        except Exception:
+                            pass
 
-                    # 4. Auto-update session title if default
-                    if session.title == "New Chat":
-                        clean_title = message_text.replace("\n", " ")
-                        session.title = clean_title[:40] + ("..." if len(clean_title) > 40 else "")
-
-                    db.commit()
-                    db.refresh(assistant_msg)
+                        from app.configs.db.config import SessionLocal
+                        if SessionLocal:
+                            with SessionLocal() as fresh_db:
+                                assistant_msg = ChatMessage(
+                                    session_id=session_id_val,
+                                    role=MessageRole.ASSISTANT,
+                                    content=data["text"],
+                                )
+                                fresh_db.add(assistant_msg)
+                                if is_default_title:
+                                    fresh_session = fresh_db.query(ChatSession).filter(ChatSession.id == session_id_val).first()
+                                    if fresh_session:
+                                        clean_title = message_text.replace("\n", " ")
+                                        fresh_session.title = clean_title[:40] + ("..." if len(clean_title) > 40 else "")
+                                fresh_db.commit()
+                                fresh_db.refresh(assistant_msg)
+                                assistant_msg_payload = ChatMessageResponse.model_validate(assistant_msg).model_dump(mode="json")
+                        else:
+                            raise db_err
 
                     final_payload = {
-                        "user_message": ChatMessageResponse.model_validate(user_msg).model_dump(mode="json"),
-                        "assistant_message": ChatMessageResponse.model_validate(assistant_msg).model_dump(mode="json"),
-                        "sources": data["sources"]
+                        "user_message": user_msg_payload,
+                        "assistant_message": assistant_msg_payload,
+                        "sources": data["sources"],
+                        "generated_pdf": data.get("generated_pdf"),
                     }
                     yield f"data: {json.dumps(final_payload)}\n\n"
         except Exception as e:

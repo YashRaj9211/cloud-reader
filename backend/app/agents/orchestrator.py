@@ -17,6 +17,8 @@ from google.genai import types
 from sqlalchemy.orm import Session
 
 from app.agents.chat_agent.agent import chat_agent
+from app.agents.p5js_agent.agent import p5js_agent
+from app.agents.pdf_notes_agent.agent import pdf_notes_agent
 from app.agents.root_agent.agent import root_agent
 from app.models.chat import ChatMessage, ChatSession
 from app.schema.chat import SourceCitation
@@ -40,6 +42,8 @@ class ADKAgentOrchestrator:
         self.app_name = app_name
         self._root_agent = root or root_agent
         self._chat_agent = chat_agent
+        self._p5js_agent = p5js_agent
+        self._pdf_notes_agent = pdf_notes_agent
         self._session_service = InMemorySessionService()
         self._memory_service = InMemoryMemoryService()
         self._runner: Optional[Runner] = None
@@ -52,10 +56,18 @@ class ADKAgentOrchestrator:
     def chat_agent(self) -> BaseAgent:
         return self._chat_agent
 
+    @property
+    def p5js_agent(self) -> BaseAgent:
+        return self._p5js_agent
+
+    @property
+    def pdf_notes_agent(self) -> BaseAgent:
+        return self._pdf_notes_agent
+
     # For backward-compatibility with code expecting orchestrator.agent
     @property
     def agent(self) -> BaseAgent:
-        return self._chat_agent
+        return self._root_agent
 
     @property
     def session_service(self) -> InMemorySessionService:
@@ -69,7 +81,7 @@ class ADKAgentOrchestrator:
     def runner(self) -> Runner:
         if self._runner is None:
             self._runner = Runner(
-                agent=self._chat_agent,
+                agent=self._root_agent,
                 app_name=self.app_name,
                 session_service=self._session_service,
                 memory_service=self._memory_service,
@@ -245,6 +257,14 @@ class ADKAgentOrchestrator:
         raw_sources = updated_session.state.get("last_sources", [])
         citations = [SourceCitation(**src) for src in raw_sources]
 
+        # Extract any in-memory generated PDF to forward to client
+        generated_pdf = updated_session.state.get("generated_pdf")
+        if "generated_pdf" in updated_session.state:
+            try:
+                del updated_session.state["generated_pdf"]
+            except Exception:
+                pass
+
         assistant_text = "".join(assistant_parts).strip()
         if not assistant_text:
             assistant_text = "I could not generate an answer based on the indexed document passages."
@@ -259,7 +279,8 @@ class ADKAgentOrchestrator:
         yield {
             "type": "done",
             "text": assistant_text,
-            "sources": [c.model_dump() for c in citations]
+            "sources": [c.model_dump() for c in citations],
+            "generated_pdf": generated_pdf,
         }
 
 # Default singleton orchestrator instance

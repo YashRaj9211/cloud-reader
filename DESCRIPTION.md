@@ -56,7 +56,19 @@
   - Text selection highlights with attached note cards and exact text capture.
   - **Robust Annotation Lifecycle & ID Integrity**: All annotations (highlights, notes, ink strokes, shapes, text boxes) are guaranteed unique cryptographic/timestamp-based IDs (`note-...`, `hl-...`, etc.) and ISO timestamps on creation. Legacy/unindexed annotations are automatically sanitized with stable fallback keys upon hydration, preventing accidental batch deletion of notes and eliminating "Invalid Date" displays.
   - **Annotation Deep-Linking & Jump-to-Note**: Clicking any annotation or note in the `AnnotationPanel` immediately smooth-scrolls continuous reading view to the target page and opens the dedicated note card.
+- **Optimized Continuous Scroll & Dynamic Virtualization**:
+  - `PRELOAD_WINDOW` expanded to 5 pages, preventing adjacent pages from unmounting and remounting during normal scrolling gestures.
+  - Removed container-level CSS `scroll-smooth` which fought with browser scroll momentum and caused jerky pauses.
+  - Eliminated programmatic auto-scroll feedback loops: user continuous scrolling updates `currentPage` in the state and header without re-triggering programmatic scroll animations.
 - **Page Size Cache**: `PDFPageItem` reports its exact rendered dimensions to `PDFReader` via `onPageSizeChange`, populating a `pageSizeCache` ref. Virtualized spacer divs use these exact heights instead of A4 estimates, eliminating layout shifts when scrolling through previously-rendered pages.
+- **Stitch-Aligned Floating Toolbar & Clean Top Bar Aesthetic**:
+  - **Main Navigation Bar**: Glassmorphic, borderless floating header (`backdrop-blur-xl`, `CloudPDF` brand badge with flame icon, document title with page status pill, minimal sync status dot, `⌘K` semantic search icon trigger, compact segmented view mode icon switcher (`PDF`, `Markdown`, `Split`), notes icon toggle, glowing **AI Copilot** action pill with pulsing status indicator, and user profile avatar).
+  - **Reading Document Floating Toolbar**: Refactored from a rigid full-width border block into a streamlined, borderless floating pill dock (`rounded-full`, glassmorphic `backdrop-blur-xl`, `shadow-[0_4px_24px_-2px_rgba(0,0,0,0.08)]`). To maximize visual simplicity and reduce clutter:
+    - Geometric shapes (Rectangle, Circle, Line, Arrow), Text Box, and Eraser are neatly organized into a single **Shapes** dropdown menu.
+    - Color selection is housed in a compact round swatch dropdown.
+    - Preserves direct access to primary navigation, text selection, highlighting, note creation, freehand pen, and quick zoom controls while eliminating redundant wrapper borders and heavy container backgrounds.
+  - **Minimalist Document Library Sidebar**: Transformed the left sidebar from heavy dashed upload dropzones, bulky cards, large progress bars, and index badges into a clean, flat list layout. Features a quiet header with document count badge, quick upload icon trigger, compact segment tab pills (`Files`, `Folders`, `Notes`), subtle search input, plain single-line file items with elegant circular progress gauges (displaying reading percentage inside the circle alongside `read/total` page numbers), and a low-profile user profile footer.
+  - **Seamless Document Switching & Full Loading States**: When selecting or switching documents from the sidebar, the viewport immediately displays a centered document loader (`z-50`, spinning ring with `FileText` icon, document title, and live binary streaming status) rather than flashing a blank screen or empty welcome view while the binary is being downloaded and parsed.
 - **Cross-device State Sync**: Real-time sync of reading progress, zoom settings, and annotations.
 
 ### 3. Asynchronous Event-Driven Ingestion Pipeline (Kafka + Workers)
@@ -71,13 +83,40 @@
 ### 4. Advanced RAG & AI Reading Assistant
 - **Semantic Vector Search**: Powered by ChromaDB vector collections per book/document.
 - **Reranking**: Cross-encoder / reranking service to select the most relevant chunks.
-- **Google ADK 2.0 Agent Orchestrator (`app/agent.py`)**:
-  - Dedicated agent module featuring `LlmAgent`, `InMemorySessionService`, `InMemoryMemoryService`, and `Runner`.
-  - Tool integration for scoped document context retrieval (`retrieve_document_context`) and semantic past-conversation memory (`search_conversation_memory`).
+- **Google ADK 2.0 Multi-Agent Orchestrator (`app/agents/orchestrator.py`)**:
+  - Central orchestrator coordinating `root_agent`, `chat_agent`, `p5js_agent`, and `pdf_notes_agent` via `LlmAgent`, `InMemorySessionService`, `InMemoryMemoryService`, and `Runner`.
+  - **Root Coordinator Agent (`root_agent/`)**: Primary user entrypoint. Orchestrates intents, delegating document Q&A to `cloud_pdf_rag_agent`, invoking `p5js_agent` as an `AgentTool` for animations, and invoking `pdf_notes_agent` as an `AgentTool` for PDF note generation.
+  - **Document RAG Specialist (`chat_agent/`)**: Equipped with scoped vector retrieval (`retrieve_document_context`) and semantic memory search (`search_conversation_memory`) tools. Provides page-cited answers.
+  - **P5.js Creative Visualization Specialist (`p5js_agent/`)**:
+    - Equipped with the `p5js` skill loaded dynamically via ADK `SkillToolset` (`load_skills_from_dir`), granting the agent native tools: `list_skills`, `load_skill`, `load_skill_resource`, and `run_skill_script`.
+    - Leverages skill guidelines and references (`references/animation.md`, `references/visual-effects.md`, `references/creative-direction.md`, `references/color-systems.md`, etc.).
+    - Generates self-contained, interactive, 60fps p5.js animations encapsulated in ````p5js ... ```` markdown blocks, rendered by the frontend's sandboxed iframe `P5Renderer` with play/pause, restart, code inspection, clipboard copy, and responsive fullscreen lightbox modal controls.
   - Multi-session chat history persisted in PostgreSQL and rehydrated into ADK sessions.
-  - Context-grounded responses citing exact page numbers.
-  - **Server-Sent Events (SSE) Streaming**: Streams chunked AI responses to the frontend in real-time, providing an interactive, live-typing experience.
-  - **Dynamic Animation Specs**: Generates declarative visual animation schemas (`animation-spec`) rendered by the frontend to explain complex concepts visually.
+  - **Server-Sent Events (SSE) Streaming & Resilient Persistence**: Streams chunked AI responses to the frontend in real-time. To prevent serverless PostgreSQL connection timeouts during long turns (such as multi-step Playwright PDF generation or in-depth RAG synthesis), the engine configures TCP keepalives and `pool_recycle`, and the chat controller implements resilient assistant message persistence that auto-reconnects with a fresh `SessionLocal` if the primary idle connection drops mid-stream.
+  - **In-Memory PDF Notes Generation Specialist (`pdf_notes_agent/`)**:
+    - Activated when the user requests study notes, revision summaries, study guides, cheatsheets, or PDF exports.
+    - Retrieves relevant RAG context via `retrieve_document_context`, synthesizes comprehensive notes in structured semantic HTML (callout boxes, key concept blocks, tables, review questions, code blocks, executive summary), then calls `create_pdf_note` tool.
+    - `create_pdf_note` invokes `app/services/pdf_generator.py` which uses **Playwright headless Chromium** to compile a premium A4 HTML document into **raw in-memory PDF bytes** with zero disk writes, eliminating the need for backend storage or external object stores.
+    - The PDF bytes are base64-encoded and attached to the SSE stream `final_payload.generated_pdf` (with title, filename, size, and summary).
+    - In the frontend chat view, `ChatMessageList` displays a stylized **Generated PDF Notes Card** with instant **Download & Save PDF** (creates an in-memory client `Blob` and triggers direct browser download) and **Open in Browser** (previews the Blob URL in a new tab) actions.
+  - **Frontend P5.js Animation Suite (`P5Renderer.tsx`, `ChatMessageList.tsx`, `ChatDrawer.tsx`)**:
+    - **Universal Format Support**: Seamlessly renders both raw JavaScript sketches (`function setup()`) and complete standalone HTML5 applications (`<!DOCTYPE html>` with interactive buttons, sliders, and controls).
+    - **DOM Canvas Parent Fix**: Automatically replaces `<canvas id="canvas">` with `<div id="canvas">` when rendering full HTML sketches, resolving the browser canvas fallback invisibility bug.
+    - **Unescaped HTML Preprocessor**: Detects raw `<!DOCTYPE html> ... </html>` documents in chat responses and wraps them into ````p5js```` code fences so they render as live interactive sandboxes instead of broken markdown text.
+    - **Debounced Stream Rendering**: Prevents iframe churn and flashing during live token streaming by debouncing updates and displaying a sleek shimmering loader while simulation logic compiles.
+    - **Dark Simulation Canvas**: Sandboxed iframe with an optimized dark viewport (`#09090b`) to highlight vibrant generative graphics and eliminate harsh light borders.
+    - **Transport & Code Controls**: Inline and full-screen transport controls (Play, Pause, Restart, Code/Canvas view toggle, and One-click Code Copy with checkmark confirmation).
+    - **Fullscreen Lightbox Experience**: Full-screen modal with darkened backdrop and quick keyboard shortcuts (`Space` to Play/Pause, `R` to Restart, `Esc` to Exit).
+    - **One-Click Animation Discovery**: Quick action prompt chips in `ChatDrawer` and suggested prompts in `ChatMessageList` to trigger visual simulations with a single click.
+    - **PDF Notes Download Card**: When the assistant generates PDF notes via `pdf_notes_agent`, `ChatMessageList` automatically detects the download link in the response and renders a stylized **Generated PDF Notes** card (emerald-themed, with FileText icon, document title, A4 format badge, and two action buttons: **Download PDF** and **Open in Browser**).
+    - **Suggested Prompts**: Includes `📝 Generate PDF study notes on this topic` alongside the existing animation prompt.
+    - **Stitch On-Demand Interactive Animation Studio Window (`AnimationStudioWindow.tsx`)**:
+      - Docks directly above the reading document canvas (`bottom-3 left-4 right-4 md:left-6 md:right-6 z-30`) with an elevated glassmorphic panel (`backdrop-blur-xl`, `border-[#fa5d19]/25`, `rounded-2xl`, `shadow-2xl`).
+      - **Studio Header**: Dynamic simulation title, grounded page badge with jump-to-page deep linking, playback speed toggles (`0.5x`, `1x`, `2x`), restart simulation button, code inspector toggle, fullscreen/expand button, bottom dock/collapse chevron, and close/collapse button.
+      - **Split Studio Layout**:
+        - **8-Column Simulation Canvas**: Embedded 60 FPS sandboxed iframe with runtime error protection, active particle sample counter, universe area stats, play/pause and replay controls, and live calculated Bayesian probability / mathematical formula result badge.
+        - **4-Column Parameter Playground**: Live interactive sliders (`Prior Probability P(A)`, `Evidence Occurrence P(B)`, `Likelihood P(B | A)`) that instantly update and re-calculate probability values, a visual insight card explaining the mathematical flow, one-click code copying, and a "Collapse to Chat" action.
+      - **Seamless Chat Integration**: Chat messages containing p5.js blocks provide an "Open in Animation Studio ↗" button that elevates the animation directly into the docked studio window without cluttering the chat history.
 
 ---
 
@@ -89,12 +128,15 @@
 - **Message Broker / Pipeline**: Apache Kafka / aiokafka
 - **Vector Database**: ChromaDB (HTTP Client / Vector Collections)
 - **AI & Embedding Models**: NVIDIA API / OpenAI-compatible client / Google ADK 2.0
+- **Agent Skill System**: Google ADK `SkillToolset` + native `p5js` creative coding skill
+- **PDF Notes Engine**: Playwright (headless Chromium) + HTML/CSS print layout for A4 PDF generation
 - **Monitoring**: Prometheus client metrics & request tracking middleware
 
 ### Frontend
 - **Framework**: React 19 + TypeScript + Vite
 - **Styling**: Tailwind CSS + Custom Design System (`index.css`)
 - **PDF Engine**: PDF.js (`pdfjs-dist`)
+- **Interactive Animation Engine**: p5.js 1.11.3 (`P5Renderer`) in sandboxed iframes + declarative `AnimationPlayer`
 - **State Management**: Zustand / React Hooks
 - **Icons & UI**: Lucide React, Radix UI primitives, Canvas 2D overlay
 
@@ -107,24 +149,34 @@ cloud-pdf-reader/
 ├── backend/
 │   ├── app/
 │   │   ├── api/            # Legacy API endpoints (auth, books, sync)
-│   │   ├── configs/        # Configurations (Kafka, DB, etc.)
+│   │   ├── configs/        # Modular service configs (db, redis, chroma, kafka, prometheus, env_loader)
 │   │   ├── controllers/    # Business logic controllers (books, chat, directories, etc.)
 │   │   ├── middlewares/    # Auth middleware, Prometheus metrics
 │   │   ├── models/         # SQLAlchemy models (Book, ChatMessage, User, etc.)
 │   │   ├── pipeline/       # Kafka event pipeline (runner, producer, workers: fetch, parse, chunk, embed, store, dlq)
 │   │   ├── routes/         # Consolidated API routers (/api/auth, /api/books, /api/chat, etc.)
 │   │   ├── schema/         # Pydantic schemas for request/response validation
-│   │   ├── services/       # Core services (rag_service, drive, chroma, rerank)
+│   │   ├── services/       # Core services (rag_service, drive, chroma, rerank, pdf_generator)
 │   │   ├── agents/         # Dedicated Google ADK 2.0 multi-agent architecture
 │   │   │   ├── orchestrator.py # Multi-agent execution, memory indexing & session rehydration
-│   │   │   ├── root_agent/ # Root coordinator agent (intent routing & sub-agent delegation)
+│   │   │   ├── root_agent/ # Root coordinator agent (intent routing & p5js_agent as tool)
 │   │   │   │   ├── agent.py
 │   │   │   │   └── prompts.py
-│   │   │   └── chat_agent/ # Specialized document research & scoped RAG agent
-│   │   │       ├── agent.py
-│   │   │       ├── tools.py
-│   │   │       └── prompts.py
-│   │   ├── configs/        # Modular service configs (db, redis, chroma, kafka, promethus, env_loader)
+│   │   │   ├── chat_agent/ # Specialized document research & scoped RAG agent
+│   │   │   │   ├── agent.py
+│   │   │   │   ├── tools.py
+│   │   │   │   └── prompts.py
+│   │   │   ├── p5js_agent/ # Specialized p5.js animation & generative coding agent
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── agent.py
+│   │   │   │   └── prompts.py
+│   │   │   ├── pdf_notes_agent/ # Specialist agent for generating PDF study/revision notes
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── agent.py     # LlmAgent definition with RAG + pdf tools
+│   │   │   │   ├── prompts.py   # HTML structure guidelines & quality standards
+│   │   │   │   └── tools.py     # create_pdf_note() → calls pdf_generator.py
+│   │   │   └── skills/     # Agent-loadable skills
+│   │   │       └── p5js/   # p5.js production skill (SKILL.md, references, scripts, templates)
 │   │   ├── config.py       # Global environment settings (supports APP_ENV)
 │   │   ├── db.py           # Database connection & session manager
 │   │   └── main.py         # FastAPI application entrypoint & lifespan

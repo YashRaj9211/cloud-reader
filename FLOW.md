@@ -121,9 +121,20 @@ sequenceDiagram
     Backend-->>Store: 200 OK (Sync confirmed + version timestamp)
 ```
 
+### 3.1 Floating Toolbar & Header Navigation Interactions
+- **Main Top Navigation Bar**:
+  - Borderless, glassmorphic floating header (`backdrop-blur-xl`) that minimizes text in favor of sleek, intuitive icon buttons.
+  - Hosts the Library drawer toggle, document title and current page pill, a subtle sync status dot, semantic search trigger with `⌘K`, compact view mode icon switcher (`PDF` / `Markdown` / `Split`), notes drawer toggle icon, and glowing **AI Copilot** action pill.
+- **Floating Document Toolbar**:
+  - Floats cleanly above the PDF canvas as an uncluttered pill dock (`rounded-full`, `shadow-[0_4px_24px_-2px_rgba(0,0,0,0.08)]`, `backdrop-blur-xl`) with wrapper border and heavy backgrounds removed.
+  - Groups secondary tools into clean drop-down menus:
+    - **Shapes & Tools Dropdown**: Consolidates Rectangle, Circle, Line, Arrow, Text Box, and Eraser into a single popover.
+    - **Palette Swatch Dropdown**: Interactive popover for annotation colors.
+  - Keeps essential primary reading controls directly accessible: Page jump `<` / `Page / Total` / `>`, Navigate, Highlight, Note, Pen, Zoom controls, and Thumbnail view toggle.
+
 ---
 
-## 4. Google ADK 2.0 RAG Chat & Memory Flow
+## 4. Google ADK 2.0 Multi-Agent Orchestration & Animation Flow
 
 ```mermaid
 sequenceDiagram
@@ -133,44 +144,140 @@ sequenceDiagram
     participant Controller as Chat Controller (/api/chat)
     participant AgentOrchestrator as ADK Multi-Agent Orchestrator (app/agents)
     participant RootAgent as Root Coordinator Agent (root_agent)
-    participant ChatAgent as Chat & RAG Specialist Agent (chat_agent)
-    participant SessionMem as ADK Session & Memory Service
+    participant ChatAgent as Document RAG Agent (cloud_pdf_rag_agent)
+    participant P5Agent as P5.js Creative Agent (p5js_agent via AgentTool)
+    participant SkillTools as SkillToolset (p5js skill)
     participant Runner as ADK Runner
-    participant Tool as Tool (retrieve_document_context)
-    participant VectorStore as Query / ChromaDB Service
-    participant LLM as LLM Model (LiteLlm / Gemini)
     participant DB as Neon PostgreSQL
 
-    Reader->>UI: Submit question: "Explain the concept in chapter 2"
+    Reader->>UI: Submit request: "Explain bubble sort and animate it with p5js"
     UI->>Controller: POST /api/chat/sessions/{id}/messages
     Controller->>DB: Save User message
-    Controller->>AgentOrchestrator: execute_turn(session, user_message, user_id, db)
+    Controller->>AgentOrchestrator: execute_turn_stream(session, user_message, user_id, db)
     
-    AgentOrchestrator->>SessionMem: get_or_create_session(session_id, user_id, scope)
-    opt If first turn in cache
-        AgentOrchestrator->>DB: Fetch historical messages
-        AgentOrchestrator->>SessionMem: Rehydrate prior events into ADK Session
+    AgentOrchestrator->>Runner: run_async(user_id, session_id, new_message)
+    Note over Runner,RootAgent: Runner executes Root Coordinator with tools=[p5js_agent] & sub_agents=[chat_agent]
+
+    alt Document research needed
+        RootAgent->>ChatAgent: Transfer to cloud_pdf_rag_agent
+        ChatAgent->>ChatAgent: Call retrieve_document_context() & search_conversation_memory()
+        ChatAgent-->>RootAgent: Return grounded context snippets & citations
     end
 
-    AgentOrchestrator->>Runner: run_async(user_id, session_id, new_message)
-    Note over Runner,RootAgent: Orchestrator routes via Root Coordinator to specialized Chat Agent
-    Runner->>LLM: Evaluate message with tools schema & system instructions
-    LLM-->>Runner: Call tool `retrieve_document_context(query)`
-    Runner->>Tool: Invoke retrieve_document_context
-    Tool->>VectorStore: query_service.query(query, scope, user_id)
-    VectorStore-->>Tool: Matched chunk snippets & page metadata
-    Tool->>SessionMem: Update session state (`last_sources`)
-    Tool-->>Runner: Return context snippets to agent
-    Runner->>LLM: Generate final answer grounded in snippets
-    LLM-->>Runner: Stream response parts & citations
-    Runner-->>AgentOrchestrator: Yield event stream (chunks)
-    AgentOrchestrator-->>Controller: Yield text chunks to SSE Stream
-    Controller-->>UI: Server-Sent Events (data: {"chunk": "..."})
-    AgentOrchestrator->>SessionMem: add_session_to_memory(session) (Cross-session memory update)
+    alt Animation / Visualization requested
+        RootAgent->>P5Agent: Invoke AgentTool(agent=p5js_agent, query)
+        opt Query references p5js skill
+            P5Agent->>SkillTools: load_skill("p5js") / load_skill_resource("references/animation.md")
+            SkillTools-->>P5Agent: Skill guidelines, motion vocabulary, and code templates
+        end
+        P5Agent-->>RootAgent: Return complete, 60fps ```p5js``` code block & visual explanation
+    end
+
+    RootAgent-->>Runner: Stream cohesive response (Explanation + ```p5js``` block)
+    Runner-->>AgentOrchestrator: Yield event stream (partial chunks)
+    AgentOrchestrator-->>Controller: Yield SSE chunks (data: {"chunk": "..."})
+    Controller-->>UI: Live-stream text & code
+    UI->>UI: P5Renderer debounces stream, mounts sandbox iframe (#09090b), renders 60fps sketch with transport/copy/fullscreen controls
+    opt User clicks "Open in Animation Studio ↗"
+        UI->>Store: setActiveAnimation({ code, title, groundedPage, sourceDocId }) + setAnimationStudioOpen(true)
+        Store-->>UI: Mounts AnimationStudioWindow at viewport bottom dock (z-30)
+        UI->>UI: Renders split layout (8-col simulation canvas + 4-col parameter playground)
+        User->>UI: Adjusts sliders (Prior / Evidence / Likelihood) or playback speed (0.5x / 1x / 2x)
+        UI->>UI: Live calculation of Bayes formula & updates iframe canvas parameters
+    end
     Controller->>DB: Save Assistant message to PostgreSQL
-    Controller-->>UI: Server-Sent Events (data: {"assistant_message": ..., "sources": ...})
+    Controller-->>UI: SSE Done (data: {"assistant_message": ..., "sources": ...})
 ```
 
+### 4.1 On-Demand Interactive Animation Studio Window Lifecycle
+1. **Trigger**:
+   - In `ChatMessageList`, any message containing a p5.js block or full HTML simulation displays an **"Interactive Concept Simulation"** banner with an **"Open in Animation Studio ↗"** button.
+   - Alternatively, clicking the studio button in `P5Renderer`'s controls or inline canvas overlay directly triggers the studio.
+2. **State Transition**:
+   - Updates `useAppStore`:
+     - `activeAnimation`: Holds the clean executable code, parsed simulation title, grounded page number, and source document ID.
+     - `animationStudioOpen: true`.
+3. **Viewport Mounting**:
+   - `AnimationStudioWindow` mounts within `MainDashboard`'s main document viewport at `bottom-3 left-4 right-4 md:left-6 md:right-6 z-30`.
+   - Floats above the PDF/Markdown reader with a glassmorphic aesthetic (`backdrop-blur-xl`, `border-[#fa5d19]/25`, `rounded-2xl`).
+4. **Interaction & Playground**:
+   - Header provides `0.5x / 1x / 2x` speed toggles, simulation replay, code view toggle, fullscreen mode, and dock/minimize.
+   - Grounded page badge allows one-click jumping back to the referenced section in the PDF reader.
+   - Parameter sliders dynamically update variables and re-compute formula results in real-time.
+   - "Collapse to Chat" minimizes the window and refocuses the AI chat drawer.
+
+---
+
+## 4.2 PDF Notes Generation Lifecycle
+
+When the user asks for "study notes", "revision notes", "PDF export", or "study guide", the system runs the following flow:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as Chat Panel (ChatMessageList)
+    participant Controller as Chat Controller (/api/chat)
+    participant Orchestrator as ADK Orchestrator
+    participant Root as Root Coordinator Agent
+    participant NotesAgent as PDF Notes Agent (pdf_notes_agent via AgentTool)
+    participant Generator as pdf_generator.py (Playwright in-memory)
+
+    User->>UI: "Create study notes on Neural Networks in PDF"
+    UI->>Controller: POST /api/chat/sessions/{id}/messages
+    Controller->>Orchestrator: execute_turn_stream(session, message, user_id, db)
+    Orchestrator->>Root: run_async → Root detects PDF notes intent
+
+    Root->>NotesAgent: Invoke AgentTool(agent=pdf_notes_agent, query)
+    NotesAgent->>NotesAgent: retrieve_document_context() — fetch relevant RAG chunks
+    NotesAgent->>NotesAgent: Synthesize full semantic HTML body
+    Note over NotesAgent: exec-summary, key-concept blocks, callouts,<br/>tables, code blocks, review questions
+
+    NotesAgent->>NotesAgent: create_pdf_note(title, html_content, summary, tool_context)
+    NotesAgent->>Generator: generate_pdf_notes(title, html_body)
+    Generator->>Generator: Playwright async_playwright() → chromium.launch(headless=True)
+    Generator->>Generator: page.set_content(full_html, wait_until="networkidle")
+    Generator->>Generator: page.pdf(format="A4", print_background=True) → in-memory bytes
+    Generator-->>NotesAgent: (pdf_bytes, filename) — ZERO disk writes
+
+    NotesAgent->>NotesAgent: base64.b64encode(pdf_bytes) → tool_context.state["generated_pdf"]
+    NotesAgent-->>Root: Return {status, title, filename, size_bytes, summary}
+
+    Root-->>Orchestrator: Final assistant response summary
+    Orchestrator-->>Controller: SSE chunks + final event {type: "done", text, sources, generated_pdf}
+    Controller->>Controller: Save assistant message (with connection timeout resilience)
+    Controller-->>UI: SSE Done with final_payload.generated_pdf
+
+    UI->>UI: Receive generated_pdf with in-memory base64 data
+    UI->>UI: Render PDF Ready Download Card (title, size KB, Download + Open in Browser)
+
+    opt User clicks Download PDF
+        UI->>UI: Convert base64 → Blob("application/pdf")
+        UI->>User: Trigger direct browser download (a.download) — instant save!
+    end
+
+    opt User clicks Open in Browser
+        UI->>UI: Convert base64 → Blob → URL.createObjectURL(blob)
+        UI->>User: window.open(blobUrl, '_blank') — immediate preview!
+    end
+```
+
+### 4.2.1 PDF Notes Tool Flow
+
+1. **Intent Detection**: Root agent identifies PDF notes intent via keyword triggers in the prompt (`generate notes`, `study guide`, `revision notes`, `export notes to PDF`, etc.).
+2. **RAG Context Retrieval**: `pdf_notes_agent` calls `retrieve_document_context` to pull relevant document chunks for grounded note generation.
+3. **HTML Synthesis**: The LLM synthesizes a comprehensive semantic HTML body including:
+   - `.exec-summary` — executive overview block
+   - `.key-concept` — highlighted key definition blocks
+   - `.callout.tip / .note / .warning / .formula / .important` — structured callout boxes
+   - `<table>` — comparison or data tables
+   - `<pre><code>` — code / pseudocode / formula blocks
+   - `.review-questions` — end-of-notes self-assessment questions
+4. **Playwright In-Memory Rendering**: `pdf_generator.py` wraps the HTML body in a full premium print document with Google Fonts, `@page` A4 rules, print-color-adjust, page-break utilities, and footer branding. Playwright's headless Chromium renders it directly to in-memory bytes with zero disk storage.
+5. **Direct Client Delivery**: The PDF bytes are base64-encoded and attached to the SSE stream `final_payload.generated_pdf` (with title, filename, size, and summary).
+6. **Frontend Card & Instant Download**: `ChatMessageList.tsx` receives `msg.generated_pdf` and renders an emerald **PDF Ready Card** with two instant actions:
+   - **Download PDF**: Decodes the base64 string into a client-side `Blob("application/pdf")` and triggers an immediate file save to the user's computer.
+   - **Open in Browser**: Converts the `Blob` into an ephemeral `URL.createObjectURL(blob)` and opens it in a new browser tab for immediate reading or printing.
 
 ---
 
@@ -202,7 +309,7 @@ Describes the rendering pipeline from PDF load to page display, including the vi
 
 ### Rendering Flow Summary
 1. PDF loaded → `pdfjsLib.getDocument` (Web Worker thread)
-2. Continuous mode: compute window `[currentPage-2, currentPage+2]`
+2. Continuous mode: compute window `[currentPage-5, currentPage+5]` (PRELOAD_WINDOW=5) to keep adjacent pages mounted and prevent unmount/remount thrashing during continuous scrolling
 3. Pages in window → mount `PDFPageItem`; pages outside → height-preserving spacer div
 4. `IntersectionObserver` (rootMargin=1000px) triggers **canvas render** when page enters margin
 5. `IntersectionObserver` (same observer) triggers **text layer render** when page enters margin
@@ -210,4 +317,5 @@ Describes the rendering pipeline from PDF load to page display, including the vi
 7. Each render cancels the previous `RenderTask` / `TextLayer` for that page before starting a new one
 8. Thumbnails rendered at scale 0.2 via `requestIdleCallback`, canvas released immediately after `toDataURL`
 9. `PDFPageItem` reports exact rendered dimensions to `PDFReader` via `onPageSizeChange` → `pageSizeCache`
+10. Programmatic scroll loop prevention: User scrolling continuous reading updates `currentPage` without firing competing programmatic smooth-scroll interruptions.
 

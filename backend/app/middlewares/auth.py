@@ -31,7 +31,7 @@ PUBLIC_EXEMPT_PATHS: Set[str] = {
 def is_public_path(path: str) -> bool:
     if path in PUBLIC_EXEMPT_PATHS:
         return True
-    if path.startswith("/docs") or path.startswith("/redoc"):
+    if path.startswith("/docs") or path.startswith("/redoc") or path.startswith("/api/notes/generated/"):
         return True
     return False
 

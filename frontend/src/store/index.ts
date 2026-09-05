@@ -80,6 +80,24 @@ export interface AppState {
   setViewMode: (mode: ViewMode) => void;
   setActiveSidebarTab: (tab: 'documents' | 'folders' | 'notes') => void;
 
+  // ── Animation Studio Window State (On-Demand Interactive Dock) ──
+  activeAnimation: {
+    code: string;
+    title?: string;
+    groundedPage?: number | string;
+    sourceDocId?: string;
+  } | null;
+  animationStudioOpen: boolean;
+  setActiveAnimation: (
+    anim: {
+      code: string;
+      title?: string;
+      groundedPage?: number | string;
+      sourceDocId?: string;
+    } | null
+  ) => void;
+  setAnimationStudioOpen: (open: boolean) => void;
+
   // ── Books & Library State ──
   books: Book[];
   activeBookId: string | null;
@@ -314,6 +332,16 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setViewMode: (viewMode) => set({ viewMode }),
   setActiveSidebarTab: (activeSidebarTab) => set({ activeSidebarTab }),
+
+  // ── Animation Studio Window Defaults ──
+  activeAnimation: null,
+  animationStudioOpen: false,
+  setActiveAnimation: (anim) =>
+    set({
+      activeAnimation: anim,
+      animationStudioOpen: anim !== null,
+    }),
+  setAnimationStudioOpen: (animationStudioOpen) => set({ animationStudioOpen }),
 
   // ── Books & Library State Defaults ──
   books: [],
@@ -848,7 +876,11 @@ export const useAppStore = create<AppState>((set, get) => ({
                 messages: [
                   ...filtered,
                   payload.user_message || tempUserMsg,
-                  { ...payload.assistant_message, sources: payload.sources },
+                  {
+                    ...payload.assistant_message,
+                    sources: payload.sources,
+                    generated_pdf: payload.generated_pdf,
+                  },
                 ],
               },
             };

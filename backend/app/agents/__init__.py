@@ -16,6 +16,11 @@ from app.agents.chat_agent import (
     search_conversation_memory,
 )
 from app.agents.orchestrator import ADKAgentOrchestrator, adk_agent
+from app.agents.p5js_agent import (
+    P5JS_AGENT_INSTRUCTION,
+    create_p5js_agent,
+    p5js_agent,
+)
 from app.agents.root_agent import (
     ROOT_AGENT_INSTRUCTION,
     create_root_agent,
@@ -29,6 +34,9 @@ __all__ = [
     "chat_agent",
     "create_chat_agent",
     "CHAT_AGENT_INSTRUCTION",
+    "p5js_agent",
+    "create_p5js_agent",
+    "P5JS_AGENT_INSTRUCTION",
     "retrieve_document_context",
     "search_conversation_memory",
     "ADKAgentOrchestrator",

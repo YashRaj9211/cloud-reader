@@ -3,14 +3,13 @@ import {
   Menu,
   Tag,
   RefreshCw,
-  CheckCircle,
   Sparkles,
-  BookOpen,
   Search,
   FileText,
-  Layers,
-  SplitSquareVertical,
+  Columns,
   ShieldAlert,
+  Flame,
+  BookOpen,
 } from 'lucide-react';
 import { useAppStore } from '../store';
 import DocumentSidebar from './DocumentSidebar';
@@ -19,6 +18,7 @@ import AnnotationPanel from './AnnotationPanel';
 import { ChatDrawer } from './chat/ChatDrawer';
 import { CommandPalette } from './search/CommandPalette';
 import { MarkdownReader } from './MarkdownReader';
+import { AnimationStudioWindow } from './animation/AnimationStudioWindow';
 import { IndexingProgressBar } from './common/IndexingProgressBar';
 import { Button } from './ui/Button';
 
@@ -134,127 +134,150 @@ export const MainDashboard: React.FC = () => {
 
       {/* ── Main Viewport ── */}
       <div className="flex-1 h-full flex flex-col min-w-0 overflow-hidden relative">
-        {/* Top Navigation Bar */}
-        <header className="h-14 px-3 sm:px-6 flex items-center justify-between border-b border-stone-200 dark:border-stone-800 bg-white/90 dark:bg-stone-900/90 backdrop-blur-md shrink-0 z-20">
+        {/* Top Navigation Bar: Ultra-Clean Minimalist Bar */}
+        <header className="h-14 px-3 sm:px-6 flex items-center justify-between bg-transparent backdrop-blur-xl shrink-0 z-20 select-none">
+          {/* Left: Library Toggle & Brand */}
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-            <Button
-              variant="outline"
-              size="sm"
+            <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              leftIcon={<Menu size={16} />}
-              className={sidebarOpen ? '!bg-[#fa5d19]/10 !text-[#fa5d19] !border-[#fa5d19]/30' : ''}
+              title="Toggle Library Sidebar"
+              className={`p-2 rounded-full transition-all flex items-center justify-center ${
+                sidebarOpen
+                  ? 'bg-[#fa5d19] text-white shadow-xs'
+                  : 'text-stone-600 dark:text-stone-300 hover:bg-stone-200/60 dark:hover:bg-stone-800/80'
+              }`}
             >
-              <span className="hidden sm:inline text-xs">Library</span>
-            </Button>
+              <Menu size={18} />
+            </button>
+
+            <div className="flex items-center gap-2">
+              <span className="w-7 h-7 rounded-full bg-[#fa5d19] flex items-center justify-center text-white shadow-xs">
+                <Flame size={15} className="fill-white" />
+              </span>
+              <span className="font-bold text-sm tracking-tight text-stone-900 dark:text-stone-100 hidden sm:inline">
+                CloudPDF
+              </span>
+            </div>
 
             {/* Document Title Pill */}
             {currentBook && (
-              <span className="text-xs font-semibold max-w-[120px] sm:max-w-[220px] md:max-w-xs truncate bg-stone-100 dark:bg-stone-800 text-stone-800 dark:text-stone-200 px-3 py-1 rounded-full border border-stone-200 dark:border-stone-700">
-                📄 {currentBook.name}
-              </span>
-            )}
-
-            {/* Indexing Status Badge / Trigger */}
-            {activeBookId && (
-              <div className="hidden lg:block">
-                <IndexingProgressBar
-                  status={indexingStatus[activeBookId]}
-                  onStartIndexing={() => startIndexing(activeBookId)}
-                />
+              <div className="flex items-center gap-1.5 bg-stone-200/50 dark:bg-stone-800/60 rounded-full px-3 py-1 text-xs text-stone-700 dark:text-stone-300 max-w-[140px] sm:max-w-xs md:max-w-sm truncate">
+                <span className="font-medium truncate max-w-[100px] sm:max-w-[150px] md:max-w-[200px]">
+                  {currentBook.name}
+                </span>
+                <span className="w-1 h-1 rounded-full bg-stone-400 dark:bg-stone-600 shrink-0" />
+                <span className="text-[11px] text-stone-500 shrink-0">p. {activeBookPage}</span>
               </div>
             )}
 
-            {/* Sync indicator */}
-            <div className="hidden sm:flex items-center gap-1.5 ml-1">
-              {isSaving ? (
-                <div className="flex items-center gap-1.5 text-stone-500">
-                  <RefreshCw size={12} className="animate-spin text-[#fa5d19]" />
-                  <span className="text-[10px] font-mono">Syncing…</span>
-                </div>
-              ) : (
-                <div className="flex items-center gap-1 text-stone-500">
-                  <CheckCircle size={12} className="text-emerald-500" />
-                  <span className="text-[10px] font-mono">Synced</span>
-                </div>
-              )}
-            </div>
+            {/* Sync Icon Indicator */}
+            {isSaving ? (
+              <span title="Syncing..." className="inline-flex items-center">
+                <RefreshCw size={13} className="animate-spin text-[#fa5d19] ml-1 shrink-0" />
+              </span>
+            ) : (
+              <div className="w-2 h-2 rounded-full bg-emerald-500 ml-1 shrink-0" title="All changes saved" />
+            )}
           </div>
 
-          <div className="flex items-center gap-2">
-            {/* Global Semantic Search Trigger (Cmd+K) */}
+          {/* Right: Quick Action Icons */}
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            {/* Global Semantic Search Trigger Icon */}
             <button
               onClick={() => setCommandPaletteOpen(true)}
-              className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-stone-200 dark:border-stone-700 text-stone-500 hover:text-stone-800 dark:hover:text-stone-200 hover:border-[#fa5d19] text-xs bg-stone-50 dark:bg-stone-800/60 transition-colors cursor-pointer"
-              title="Search vector chunks & files (Cmd+K)"
+              className="p-2 rounded-full text-stone-600 dark:text-stone-300 hover:bg-stone-200/60 dark:hover:bg-stone-800/80 hover:text-stone-900 dark:hover:text-white transition-all cursor-pointer flex items-center gap-1.5"
+              title="Search vector chunks & files (⌘K)"
             >
-              <Search className="w-3.5 h-3.5" />
-              <span className="hidden md:inline">Semantic Search</span>
-              <kbd className="hidden sm:inline text-[10px] font-mono bg-stone-200 dark:bg-stone-700 px-1.5 py-0.5 rounded text-stone-600 dark:text-stone-300">
+              <Search size={16} />
+              <kbd className="hidden md:inline text-[10px] font-mono bg-stone-200/80 dark:bg-stone-800 px-1.5 py-0.5 rounded text-stone-500 dark:text-stone-400">
                 ⌘K
               </kbd>
             </button>
 
-            {/* View Mode Segmented Switcher */}
+            {/* View Mode Segmented Icon Switcher */}
             {activeBookId && (
-              <div className="hidden md:flex items-center bg-stone-100 dark:bg-stone-800 p-0.5 rounded-lg border border-stone-200 dark:border-stone-700 text-xs">
+              <div className="flex items-center bg-stone-200/50 dark:bg-stone-800/60 p-0.5 rounded-full text-xs">
                 <button
                   onClick={() => setViewMode('pdf')}
-                  className={`px-2.5 py-1 rounded-md transition-colors font-medium ${
+                  className={`px-2 py-1 rounded-full text-xs transition-all font-medium ${
                     viewMode === 'pdf'
                       ? 'bg-white dark:bg-stone-900 text-[#fa5d19] shadow-xs'
                       : 'text-stone-500 hover:text-stone-800 dark:hover:text-stone-200'
                   }`}
+                  title="PDF Page Mode"
                 >
                   PDF
                 </button>
                 <button
                   onClick={() => setViewMode('markdown')}
-                  className={`px-2.5 py-1 rounded-md transition-colors font-medium ${
+                  className={`px-2 py-1 rounded-full text-xs transition-all font-medium ${
                     viewMode === 'markdown'
                       ? 'bg-white dark:bg-stone-900 text-[#fa5d19] shadow-xs'
                       : 'text-stone-500 hover:text-stone-800 dark:hover:text-stone-200'
                   }`}
+                  title="Markdown Mode"
                 >
-                  Markdown
+                  <FileText size={13} />
                 </button>
                 <button
                   onClick={() => setViewMode('split')}
-                  className={`px-2.5 py-1 rounded-md transition-colors font-medium ${
+                  className={`px-2 py-1 rounded-full text-xs transition-all font-medium ${
                     viewMode === 'split'
                       ? 'bg-white dark:bg-stone-900 text-[#fa5d19] shadow-xs'
                       : 'text-stone-500 hover:text-stone-800 dark:hover:text-stone-200'
                   }`}
+                  title="Split View"
                 >
-                  Split
+                  <Columns size={13} />
                 </button>
               </div>
             )}
 
-            {/* Annotations panel toggle */}
-            <Button
-              variant="outline"
-              size="sm"
+            {/* Notes toggle icon button */}
+            <button
               onClick={() => setAnnotationsOpen(!annotationsOpen)}
-              leftIcon={<Tag size={14} />}
-              className={
+              className={`p-2 rounded-full transition-all ${
                 annotationsOpen
-                  ? '!bg-[#fa5d19]/10 !text-[#fa5d19] !border-[#fa5d19]/30 font-semibold'
-                  : ''
-              }
+                  ? 'bg-[#fa5d19]/15 text-[#fa5d19]'
+                  : 'text-stone-600 dark:text-stone-300 hover:bg-stone-200/60 dark:hover:bg-stone-800/80'
+              }`}
+              title="Toggle Notes & Annotations"
             >
-              <span className="hidden sm:inline">Notes</span>
-            </Button>
+              <Tag size={16} />
+            </button>
 
-            {/* AI Assistant Drawer Toggle */}
-            <Button
-              variant={chatOpen ? 'primary' : 'outline'}
-              size="sm"
+            {/* AI Copilot Drawer Toggle */}
+            <button
               onClick={toggleChat}
-              leftIcon={<Sparkles size={14} />}
-              className="font-medium"
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                chatOpen
+                  ? 'bg-[#fa5d19] text-white shadow-xs'
+                  : 'bg-[#fff1eb] dark:bg-[#fa5d19]/15 text-[#fa5d19] hover:bg-[#fa5d19]/25'
+              }`}
+              title="Toggle AI Research Copilot"
             >
-              <span className="hidden sm:inline">AI Chat</span>
-            </Button>
+              <Sparkles size={14} className={chatOpen ? 'text-white' : 'text-[#fa5d19]'} />
+              <span className="hidden sm:inline">AI Copilot</span>
+              <span className={`w-1.5 h-1.5 rounded-full ${chatOpen ? 'bg-white' : 'bg-[#fa5d19]'} animate-pulse`} />
+            </button>
+
+            {/* User Profile Avatar */}
+            {user && (
+              <div
+                className="w-7 h-7 rounded-full bg-gradient-to-tr from-[#fa5d19] to-[#ff8c42] text-white flex items-center justify-center font-bold text-xs ring-1 ring-stone-300 dark:ring-stone-700 cursor-pointer shadow-xs"
+                title={user.name || user.email || 'User Profile'}
+              >
+                {user.picture ? (
+                  <img
+                    src={user.picture}
+                    alt={user.name || 'User'}
+                    className="w-full h-full rounded-full object-cover"
+                  />
+                ) : (
+                  (user.name?.[0] || user.email?.[0] || 'U').toUpperCase()
+                )}
+              </div>
+            )}
           </div>
         </header>
 
@@ -279,12 +302,21 @@ export const MainDashboard: React.FC = () => {
             </div>
           )}
 
+          {/* Loading Overlay when downloading document binary */}
           {loadingBookData && (
-            <div className="absolute inset-0 z-40 flex flex-col items-center justify-center gap-3 bg-white/70 dark:bg-stone-900/70 backdrop-blur-sm">
-              <div className="animate-spin rounded-full h-10 w-10 border-2 border-[#fa5d19] border-t-transparent" />
-              <p className="text-xs font-mono font-medium text-stone-500 animate-pulse">
-                Streaming document binary…
-              </p>
+            <div className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-3 bg-stone-100/90 dark:bg-stone-900/90 backdrop-blur-md">
+              <div className="relative flex items-center justify-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-3 border-stone-200 dark:border-stone-700 border-t-[#fa5d19]" />
+                <FileText size={18} className="absolute text-[#fa5d19]" />
+              </div>
+              <div className="flex flex-col items-center gap-1">
+                <p className="text-xs font-semibold text-stone-800 dark:text-stone-200">
+                  Opening {currentBook?.name ? currentBook.name.replace(/\.[^/.]+$/, '') : 'Document'}…
+                </p>
+                <p className="text-[11px] font-mono text-stone-500 animate-pulse">
+                  Downloading document binary
+                </p>
+              </div>
             </div>
           )}
 
@@ -431,6 +463,20 @@ export const MainDashboard: React.FC = () => {
                 />
               </div>
             </div>
+          ) : activeBookId ? (
+            /* Document is selected and downloading */
+            <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center">
+              <div className="relative flex items-center justify-center mb-4">
+                <div className="animate-spin rounded-full h-14 w-14 border-3 border-stone-200 dark:border-stone-800 border-t-[#fa5d19]" />
+                <FileText size={22} className="absolute text-[#fa5d19]" />
+              </div>
+              <h3 className="text-sm font-semibold text-stone-800 dark:text-stone-200 mb-1">
+                Opening {currentBook?.name ? currentBook.name.replace(/\.[^/.]+$/, '') : 'Document'}…
+              </h3>
+              <p className="text-xs font-mono text-stone-400 animate-pulse">
+                Fetching document from cloud storage
+              </p>
+            </div>
           ) : (
             <div className="w-full h-full flex flex-col items-center justify-center p-6 sm:p-8 text-center max-w-md mx-auto">
               <div className="p-4 rounded-2xl bg-[#fa5d19]/10 text-[#fa5d19] mb-4 shadow-sm">
@@ -451,6 +497,9 @@ export const MainDashboard: React.FC = () => {
               </div>
             </div>
           )}
+
+          {/* ── On-Demand Interactive Animation Studio Window ── */}
+          <AnimationStudioWindow onJumpToPage={handleChangePage} />
         </div>
       </div>
 

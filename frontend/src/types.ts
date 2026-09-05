@@ -178,6 +178,14 @@ export interface SourceCitation {
   relevance_score?: number | null;
 }
 
+export interface GeneratedPdfPayload {
+  title: string;
+  filename: string;
+  data: string; // Base64 encoded PDF bytes
+  size_bytes: number;
+  summary?: string;
+}
+
 export interface ChatMessageResponse {
   id: string;
   session_id: string;
@@ -185,6 +193,7 @@ export interface ChatMessageResponse {
   content: string;
   created_at: string;
   sources?: SourceCitation[];
+  generated_pdf?: GeneratedPdfPayload;
 }
 
 export interface ChatSessionResponse {
